@@ -375,34 +375,93 @@ function renderSchedule() {
     }
   }
 
-  // Подписи задач внутри сегментов (вдоль радиуса, как на эталоне)
-  const named = new Set();
+  // Ступенька шва спирали на 04:00: видимая радиальная граница между
+  // внутренним диском и внешним кольцом (поверх сегментов).
+  {
+    const p0 = polar(R_INNER, SEAM_ANGLE), p1 = polar(R_OUTER, SEAM_ANGLE);
+    el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+      "stroke-width": 3 }, svg);
+  }
+
+  renderTaskLabels(svg);
+  renderTimeLabels(svg);
+}
+
+// Подписи задач: прямой текст вдоль хорды сегмента на среднем радиусе уровня.
+// Угол поворота = угол середины сегмента − 90°; вверх ногами — переворачиваем.
+// Лестница автоподбора: обычный шрифт → уменьшенный → уменьшенный и уплотнённый.
+// Не влезло даже уплотнённым (узкие сегменты ~30 мин и меньше) — выносим
+// подпись за круг с тонкой линией-выноской, как часовые метки на эталоне.
+function renderTaskLabels(svg) {
+  const R_MID = { inner: R_INNER / 2, outer: (R_INNER + R_OUTER) / 2 };
+  // доступная длина текста вдоль уровня (с полями)
+  const MAX_LEN = { inner: R_INNER - 40, outer: R_OUTER - R_INNER - 16 };
+  const FONT_STEPS = { inner: [26, 20, 16], outer: [24, 20, 16] };
+
+  // по одной подписи на задачу на уровень — берём самый широкий кусок
+  const best = new Map(); // key task.id:level -> piece
   for (const task of state.schedule) {
     for (const p of piecesOf(task)) {
-      const sweep = (p.s1 - p.s0) * DEG_PER_MIN;
-      if (sweep < 14) continue; // слишком узкий кусок — без подписи
       const key = task.id + ":" + p.level;
-      if (named.has(key)) continue;
-      named.add(key);
-      const midA = SEAM_ANGLE + ((p.s0 + p.s1) / 2) * DEG_PER_MIN;
-      const r = p.level === "inner" ? R_INNER * 0.58 : (R_INNER + R_OUTER) / 2;
-      const pos = polar(r, midA);
-      let rot = midA % 360;
-      if (rot > 90 && rot < 270) rot += 180; // не переворачивать текст
-      // размер шрифта по ширине куска, чтобы подписи не наезжали друг на друга
-      const fs = sweep >= 50 ? (p.level === "inner" ? 26 : 24)
-        : sweep >= 25 ? 20 : 16;
-      const t = el("text", {
-        x: pos.x, y: pos.y, "text-anchor": "middle", "dominant-baseline": "middle",
-        "font-size": fs, "font-weight": 600,
-        fill: textColorFor(task.color), "pointer-events": "none",
-        transform: `rotate(${rot} ${pos.x} ${pos.y})`
-      }, svg);
-      t.textContent = task.name;
+      const cur = best.get(key);
+      if (!cur || (p.s1 - p.s0) > (cur.s1 - cur.s0)) best.set(key, p);
     }
   }
 
-  renderTimeLabels(svg);
+  for (const p of best.values()) {
+    const task = p.task;
+    const sweepRad = (p.s1 - p.s0) * DEG_PER_MIN * Math.PI / 180;
+    const midA = SEAM_ANGLE + ((p.s0 + p.s1) / 2) * DEG_PER_MIN;
+    const rMid = R_MID[p.level];
+    const maxLen = MAX_LEN[p.level];
+
+    let placed = false;
+    const steps = FONT_STEPS[p.level];
+    for (let i = 0; i < steps.length && !placed; i++) {
+      const fs = steps[i];
+      const t = el("text", {
+        "text-anchor": "middle", "dominant-baseline": "middle",
+        "font-size": fs, "font-weight": 600, "pointer-events": "none"
+      }, svg);
+      t.textContent = task.name;
+      const natLen = t.getComputedTextLength();
+      // последний шаг лестницы — с уплотнением (сжатие по горизонтали)
+      const condense = i === steps.length - 1 && natLen > maxLen;
+      const effLen = condense ? maxLen : natLen;
+      // высота шрифта должна влезать в дуговую ширину сегмента;
+      // для диска проверяем у внутреннего конца текста, где клин уже всего
+      const rCheck = p.level === "inner" ? Math.max(rMid - effLen / 2, 1) : rMid;
+      const fits = effLen <= maxLen && fs <= rCheck * sweepRad * 0.8;
+      if (fits) {
+        if (condense) {
+          t.setAttribute("textLength", maxLen);
+          t.setAttribute("lengthAdjust", "spacingAndGlyphs");
+        }
+        const pos = polar(rMid, midA);
+        let rot = ((midA - 90) % 360 + 360) % 360;
+        if (rot > 90 && rot < 270) rot += 180; // текст не вверх ногами
+        t.setAttribute("x", pos.x);
+        t.setAttribute("y", pos.y);
+        t.setAttribute("fill", textColorFor(task.color));
+        t.setAttribute("transform", `rotate(${rot} ${pos.x} ${pos.y})`);
+        placed = true;
+      } else {
+        svg.removeChild(t);
+      }
+    }
+
+    if (!placed) {
+      // выноска за пределы круга с тонкой линией-указателем
+      const p0 = polar(rMid, midA), p1 = polar(R_OUTER + 30, midA);
+      el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+        "stroke-width": 1.2, "pointer-events": "none" }, svg);
+      const pos = polar(R_OUTER + 58, midA);
+      const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+        "dominant-baseline": "middle", "font-size": 16, fill: "#222",
+        "pointer-events": "none" }, svg);
+      t.textContent = task.name;
+    }
+  }
 }
 
 // Часовые метки: круглые часы обоих уровней + времена границ задач.
