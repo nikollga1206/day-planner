@@ -47,33 +47,38 @@
   #lib-form { border: 2px dashed #999; border-radius: 10px; padding: 10px; margin-top: 12px; }
   #lib-form h3 { margin: 0 0 8px; font-size: 17px; }
   #lib-form label { display: block; font-size: 14px; margin: 6px 0 2px; }
-  #lib-form input, #edit-panel input {
+  #lib-form input, #edit-panel input, #libedit-panel input {
     width: 100%; min-height: 44px; font-size: 17px; padding: 6px 10px;
     border: 2px solid var(--line); border-radius: 8px;
   }
-  #lib-form .row, #edit-panel .row { display: flex; gap: 8px; }
-  #lib-form .row > div, #edit-panel .row > div { flex: 1; }
+  #lib-form .row, #edit-panel .row, #libedit-panel .row { display: flex; gap: 8px; }
+  #lib-form .row > div, #edit-panel .row > div, #libedit-panel .row > div { flex: 1; }
   #msg {
     display: none; position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
     background: #e84c3d; color: #fff; font-size: 17px; padding: 12px 20px;
     border-radius: 10px; z-index: 30; max-width: 90%; box-shadow: 0 2px 10px rgba(0,0,0,.3);
   }
-  #edit-overlay {
+  #edit-overlay, #libedit-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20;
     align-items: center; justify-content: center;
   }
-  #edit-panel {
+  #edit-panel, #libedit-panel {
     background: #fff; border: 2px solid var(--line); border-radius: 14px;
     padding: 16px; width: min(420px, 92vw); max-height: 90vh; overflow: auto;
   }
-  #edit-panel h3 { margin: 0 0 8px; font-size: 19px; }
-  #edit-panel label { display: block; font-size: 14px; margin: 8px 0 2px; }
+  #edit-panel h3, #libedit-panel h3 { margin: 0 0 8px; font-size: 19px; }
+  #edit-panel label, #libedit-panel label { display: block; font-size: 14px; margin: 8px 0 2px; }
   .palette { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
   .palette .pcolor {
     width: 44px; height: 44px; border-radius: 8px; border: 2px solid var(--line); cursor: pointer;
   }
   .palette .pcolor.sel { outline: 4px solid var(--accent); }
-  #edit-panel .btns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .epalette { gap: 4px; }
+  .epick {
+    min-width: 44px; width: 44px; height: 44px; min-height: 44px; padding: 0;
+    font-size: 24px; line-height: 1; border-radius: 8px;
+  }
+  #edit-panel .btns, #libedit-panel .btns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   #drag-ghost {
     display: none; position: fixed; z-index: 40; pointer-events: none;
     padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px;
@@ -81,6 +86,8 @@
   }
   .seg { cursor: pointer; }
   .seg.conflict { stroke: #e84c3d; stroke-width: 6; }
+  /* часовые метки: белое гало, чтобы читались над линиями-указателями */
+  .tmark { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
 </style>
 </head>
 <body>
@@ -94,7 +101,7 @@
 <div id="msg"></div>
 <main>
   <div id="spiral-wrap">
-    <svg id="spiral" viewBox="-55 -30 1110 1060" role="img" aria-label="Спираль суток"></svg>
+    <svg id="spiral" viewBox="-120 -120 1240 1240" role="img" aria-label="Спираль суток"></svg>
   </div>
   <aside>
     <h2>Постоянные задачи</h2>
@@ -114,11 +121,11 @@
           <input id="lib-emoji" type="text" maxlength="4" value="⭐">
         </div>
       </div>
+      <div class="palette epalette" id="lib-emoji-palette"></div>
       <label>Цвет</label>
       <div class="palette" id="lib-palette"></div>
       <div class="btns" style="display:flex;gap:8px;margin-top:12px;">
         <button id="lib-add" class="primary">Добавить</button>
-        <button id="lib-cancel" style="display:none">Отмена</button>
       </div>
     </div>
   </aside>
@@ -144,6 +151,30 @@
       <button id="edit-save" class="primary">Сохранить</button>
       <button id="edit-delete">Удалить</button>
       <button id="edit-close">Закрыть</button>
+    </div>
+  </div>
+</div>
+<div id="libedit-overlay">
+  <div id="libedit-panel">
+    <h3>Изменить задачу</h3>
+    <label>Название</label>
+    <input id="libedit-name" type="text" maxlength="60">
+    <div class="row">
+      <div>
+        <label>Длительность, мин</label>
+        <input id="libedit-duration" type="number" min="5" max="720" step="5">
+      </div>
+      <div>
+        <label>Эмодзи</label>
+        <input id="libedit-emoji" type="text" maxlength="4">
+      </div>
+    </div>
+    <div class="palette epalette" id="libedit-emoji-palette"></div>
+    <label>Цвет</label>
+    <div class="palette" id="libedit-palette"></div>
+    <div class="btns">
+      <button id="libedit-save" class="primary">Сохранить</button>
+      <button id="libedit-cancel">Отмена</button>
     </div>
   </div>
 </div>
@@ -182,8 +213,8 @@
 // ---------- Константы геометрии ----------
 const SVG_SIZE = 1000;
 const CX = SVG_SIZE / 2, CY = SVG_SIZE / 2;
-const R_INNER = 300;          // радиус внутреннего диска (граница уровней)
-const R_OUTER = 430;          // внешний радиус кольца
+const R_INNER = 320;          // радиус внутреннего диска (граница уровней)
+const R_OUTER = 470;          // внешний радиус кольца (кольцо толще — место под подписи)
 const SEAM_ANGLE = 120;       // шов на отметке 4 часа
 const DEG_PER_MIN = 0.5;      // 30° = 60 минут
 const MIN_PER_DEG = 2;
@@ -371,6 +402,11 @@ function renderSchedule() {
           (conflictIds.includes(task.id) ? " conflict" : "")
       }, svg);
       path.dataset.taskId = task.id;
+      // всплывающая подсказка: полное название и время (важно для узких
+      // сегментов, где внутри только эмодзи)
+      const tip = el("title", {}, path);
+      tip.textContent = task.name + " — " + task.start + "–" +
+        toHHMM(toMin(task.start) + task.duration_min) + " (" + task.duration_min + " мин)";
       path.addEventListener("click", () => openEditPanel(task.id));
     }
   }
@@ -389,14 +425,14 @@ function renderSchedule() {
 
 // Подписи задач: прямой текст вдоль хорды сегмента на среднем радиусе уровня.
 // Угол поворота = угол середины сегмента − 90°; вверх ногами — переворачиваем.
-// Лестница автоподбора: обычный шрифт → уменьшенный → уменьшенный и уплотнённый.
-// Не влезло даже уплотнённым (узкие сегменты ~30 мин и меньше) — выносим
-// подпись за круг с тонкой линией-выноской, как часовые метки на эталоне.
+// Лестница автоподбора: полный текст → уменьшенный и уплотнённый текст →
+// только эмодзи (узкие сегменты ~15 мин и меньше) крупно по центру сегмента;
+// полное название и время — во всплывающей подсказке (title на сегменте).
 function renderTaskLabels(svg) {
   const R_MID = { inner: R_INNER / 2, outer: (R_INNER + R_OUTER) / 2 };
   // доступная длина текста вдоль уровня (с полями)
   const MAX_LEN = { inner: R_INNER - 40, outer: R_OUTER - R_INNER - 16 };
-  const FONT_STEPS = { inner: [26, 20, 16], outer: [24, 20, 16] };
+  const FONT_STEPS = { inner: [26, 18], outer: [24, 18] };
 
   // по одной подписи на задачу на уровень — берём самый широкий кусок
   const best = new Map(); // key task.id:level -> piece
@@ -451,62 +487,54 @@ function renderTaskLabels(svg) {
     }
 
     if (!placed) {
-      // выноска за пределы круга с тонкой линией-указателем
-      const p0 = polar(rMid, midA), p1 = polar(R_OUTER + 30, midA);
-      el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
-        "stroke-width": 1.2, "pointer-events": "none" }, svg);
-      const pos = polar(R_OUTER + 58, midA);
+      // узкий сегмент: внутри только эмодзи, крупно и по центру;
+      // размер — по дуговой ширине и толщине уровня
+      const arcW = rMid * sweepRad;
+      const radial = p.level === "inner" ? rMid : R_OUTER - R_INNER;
+      const fs = Math.max(20, Math.min(arcW * 0.75, radial * 0.6, 72));
+      const pos = polar(rMid, midA);
       const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
-        "dominant-baseline": "middle", "font-size": 16, fill: "#222",
+        "dominant-baseline": "central", "font-size": fs,
         "pointer-events": "none" }, svg);
-      t.textContent = task.name;
+      t.textContent = task.emoji || "⭐";
     }
   }
 }
 
 // Часовые метки: круглые часы обоих уровней + времена границ задач.
-// Метки внутреннего диска — в белых прямоугольниках, кольца — без рамок.
+// Все метки строго СНАРУЖИ круга, двумя радиальными ярусами с
+// линиями-указателями: ближний ярус — время внутреннего диска,
+// дальний — внешнего кольца (на одном луче они различаются на 12 ч).
+// Шрифт меток меньше шрифта подписей задач.
 function renderTimeLabels(svg) {
+  const R_TEXT = { inner: R_OUTER + 48, outer: R_OUTER + 116 };
+  const R_LINE = { inner: [R_OUTER + 4, R_OUTER + 32], outer: [R_OUTER + 70, R_OUTER + 100] };
   const innerTimes = new Set(), outerTimes = new Set();
   for (let s = 0; s < DAY_MIN; s += 60) {
     const t = (SEAM_MIN + s) % DAY_MIN;
     (levelOfS(s) === "inner" ? innerTimes : outerTimes).add(t);
   }
   // границы задач — тоже подписываем (7:30, 21:30 и т.п.)
-  const innerExtra = new Set(), outerExtra = new Set();
   for (const task of state.schedule) {
     for (const tm of [toMin(task.start), (toMin(task.start) + task.duration_min) % DAY_MIN]) {
-      const s = spiralCoord(tm);
-      if (levelOfS(s) === "inner") { if (!innerTimes.has(tm)) innerExtra.add(tm); }
-      else { if (!outerTimes.has(tm)) outerExtra.add(tm); }
+      (levelOfS(spiralCoord(tm)) === "inner" ? innerTimes : outerTimes).add(tm);
     }
   }
   const drawLabel = (tm, isInner) => {
+    const level = isInner ? "inner" : "outer";
     const a = angleOfS(spiralCoord(tm));
-    const label = toHHMM(tm);
-    if (isInner) {
-      const pos = polar(R_INNER + 40, a);
-      const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
-        "dominant-baseline": "middle", "font-size": 24, "font-weight": 600, fill: "#222" }, svg);
-      t.textContent = label;
-      const bb = t.getBBox();
-      const rect = el("rect", { x: bb.x - 6, y: bb.y - 3, width: bb.width + 12,
-        height: bb.height + 6, fill: "#fff", stroke: "#333", "stroke-width": 1 }, svg);
-      svg.insertBefore(rect, t);
-    } else {
-      // тонкая линия-указатель от края кольца наружу
-      const p0 = polar(R_OUTER + 4, a), p1 = polar(R_OUTER + 36, a);
-      el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333", "stroke-width": 1.2 }, svg);
-      const pos = polar(R_OUTER + 62, a);
-      const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
-        "dominant-baseline": "middle", "font-size": 24, fill: "#222" }, svg);
-      t.textContent = label;
-    }
+    const [r0, r1] = R_LINE[level];
+    const p0 = polar(r0, a), p1 = polar(r1, a);
+    el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+      "stroke-width": 1.2, "pointer-events": "none" }, svg);
+    const pos = polar(R_TEXT[level], a);
+    const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+      "dominant-baseline": "middle", "font-size": 20, fill: "#222",
+      "class": "tmark", "pointer-events": "none" }, svg);
+    t.textContent = toHHMM(tm);
   };
   for (const tm of innerTimes) drawLabel(tm, true);
-  for (const tm of innerExtra) drawLabel(tm, true);
   for (const tm of outerTimes) drawLabel(tm, false);
-  for (const tm of outerExtra) drawLabel(tm, false);
 }
 
 // ---------- Сообщения и подсветка конфликтов ----------
@@ -523,8 +551,16 @@ function setConflicts(tasks) {
 }
 function clearConflicts() { conflictIds = []; }
 
+// Эмодзи задачи расписания: из библиотеки по точному совпадению имени,
+// иначе звёздочка. (Поле emoji у schedule — внутреннее, в экспорт JSON
+// не входит.)
+function emojiForName(name) {
+  const found = state.library.find(x => x.name === name);
+  return found && found.emoji ? found.emoji : "⭐";
+}
+
 // ---------- Добавление задачи на спираль ----------
-function addTask(name, startMin, durationMin, color) {
+function addTask(name, startMin, durationMin, color, emoji) {
   const conflicts = findConflicts(startMin, durationMin, null);
   if (conflicts.length) {
     setConflicts(conflicts);
@@ -535,7 +571,7 @@ function addTask(name, startMin, durationMin, color) {
   }
   clearConflicts();
   state.schedule.push({ id: newId(), name, start: toHHMM(startMin),
-    duration_min: durationMin, color });
+    duration_min: durationMin, color, emoji: emoji || emojiForName(name) });
   saveState();
   renderSchedule();
   return true;
@@ -555,7 +591,24 @@ function buildPalette(container, getColor, setColor) {
 
 // ---------- Панель «Постоянные задачи» ----------
 let libFormColor = PALETTE[4];
-let libEditIndex = -1; // -1 = добавление новой
+
+// Палитра эмодзи (24 шт.): гигиена, еда, транспорт, учёба, спорт, сон,
+// чтение, игры. Клик по кнопке записывает эмодзи в связанное поле ввода;
+// ручной ввод в поле тоже работает.
+const EMOJI_PALETTE = ["🪥", "🛁", "🚿", "🍳", "🍽️", "🍲", "🍎", "🚌",
+  "🚶", "🚲", "🎒", "🏫", "📚", "✏️", "🏊", "⚽", "🏃", "😴", "🌅", "🛏️",
+  "📖", "🎮", "🧩", "🎨"];
+function buildEmojiPalette(container, input) {
+  container.innerHTML = "";
+  for (const e of EMOJI_PALETTE) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "epick";
+    b.textContent = e;
+    b.addEventListener("click", () => { input.value = e; });
+    container.appendChild(b);
+  }
+}
 
 function renderLibrary() {
   const list = document.getElementById("lib-list");
@@ -572,14 +625,13 @@ function renderLibrary() {
     const btnEdit = document.createElement("button");
     btnEdit.textContent = "✏️";
     btnEdit.title = "Изменить";
-    btnEdit.addEventListener("click", ev => { ev.stopPropagation(); startLibEdit(idx); });
+    btnEdit.addEventListener("click", ev => { ev.stopPropagation(); openLibEdit(idx); });
     const btnDel = document.createElement("button");
     btnDel.textContent = "🗑";
     btnDel.title = "Удалить";
     btnDel.addEventListener("click", ev => {
       ev.stopPropagation();
       state.library.splice(idx, 1);
-      if (libEditIndex === idx) resetLibForm();
       saveState(); renderLibrary();
     });
     row.appendChild(btnEdit);
@@ -590,36 +642,53 @@ function renderLibrary() {
   buildPalette(document.getElementById("lib-palette"), () => libFormColor, c => { libFormColor = c; });
 }
 function resetLibForm() {
-  libEditIndex = -1;
-  document.getElementById("lib-form-title").textContent = "Новая задача";
-  document.getElementById("lib-add").textContent = "Добавить";
-  document.getElementById("lib-cancel").style.display = "none";
   document.getElementById("lib-name").value = "";
   document.getElementById("lib-duration").value = 30;
   document.getElementById("lib-emoji").value = "⭐";
-}
-function startLibEdit(idx) {
-  const item = state.library[idx];
-  libEditIndex = idx;
-  document.getElementById("lib-form-title").textContent = "Изменить задачу";
-  document.getElementById("lib-add").textContent = "Сохранить";
-  document.getElementById("lib-cancel").style.display = "";
-  document.getElementById("lib-name").value = item.name;
-  document.getElementById("lib-duration").value = item.duration_min;
-  document.getElementById("lib-emoji").value = item.emoji || "⭐";
-  libFormColor = item.color;
-  renderLibrary();
 }
 function submitLibForm() {
   const name = document.getElementById("lib-name").value.trim();
   const dur = Math.max(5, Math.min(720, parseInt(document.getElementById("lib-duration").value, 10) || 0));
   const emoji = document.getElementById("lib-emoji").value.trim() || "⭐";
   if (!name) { showMessage("Введите название задачи"); return; }
-  const item = { name, duration_min: dur, color: libFormColor, emoji };
-  if (libEditIndex >= 0) state.library[libEditIndex] = item;
-  else state.library.push(item);
+  state.library.push({ name, duration_min: dur, color: libFormColor, emoji });
   resetLibForm();
   saveState(); renderLibrary();
+}
+
+// ---------- Модальное редактирование задачи библиотеки ----------
+// Открывается кнопкой ✏️ в списке: название, длительность по умолчанию,
+// цвет, эмодзи (палитра + ручной ввод), сохранение в state.library.
+let libEditIndex = -1;
+let libEditColor = PALETTE[0];
+function openLibEdit(idx) {
+  const item = state.library[idx];
+  if (!item) return;
+  libEditIndex = idx;
+  libEditColor = item.color;
+  document.getElementById("libedit-name").value = item.name;
+  document.getElementById("libedit-duration").value = item.duration_min;
+  document.getElementById("libedit-emoji").value = item.emoji || "⭐";
+  buildPalette(document.getElementById("libedit-palette"),
+    () => libEditColor, c => { libEditColor = c; });
+  document.getElementById("libedit-overlay").style.display = "flex";
+}
+function closeLibEdit() {
+  libEditIndex = -1;
+  document.getElementById("libedit-overlay").style.display = "none";
+}
+function saveLibEdit() {
+  const item = state.library[libEditIndex];
+  if (!item) { closeLibEdit(); return; }
+  const name = document.getElementById("libedit-name").value.trim();
+  const dur = Math.max(5, Math.min(720,
+    parseInt(document.getElementById("libedit-duration").value, 10) || 0));
+  const emoji = document.getElementById("libedit-emoji").value.trim() || "⭐";
+  if (!name) { showMessage("Введите название задачи"); return; }
+  state.library[libEditIndex] = { name, duration_min: dur, color: libEditColor, emoji };
+  saveState();
+  renderLibrary();
+  closeLibEdit();
 }
 
 // ---------- Drag-and-drop + touch (Pointer Events) ----------
@@ -636,7 +705,7 @@ function svgPointFromClient(clientX, clientY) {
   const m = svg.getScreenCTM();
   if (!m) return null;
   const pt = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
-  if (pt.x < -55 || pt.x > 1055 || pt.y < -30 || pt.y > 1030) return null;
+  if (pt.x < -120 || pt.x > 1120 || pt.y < -120 || pt.y > 1120) return null;
   return { x: pt.x, y: pt.y };
 }
 function onDragMove(ev) {
@@ -664,7 +733,7 @@ function onDragEnd(ev) {
   if (!pt) return;
   const item = state.library[ds.libIndex];
   const { time } = pointToTime(pt.x, pt.y);
-  addTask(item.name, time, item.duration_min, item.color);
+  addTask(item.name, time, item.duration_min, item.color, item.emoji);
 }
 
 // ---------- Панель редактирования сегмента ----------
@@ -722,8 +791,8 @@ function saveState() {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
-      schedule: state.schedule.map(({ name, start, duration_min, color }) =>
-        ({ name, start, duration_min, color })),
+      schedule: state.schedule.map(({ name, start, duration_min, color, emoji }) =>
+        ({ name, start, duration_min, color, emoji })),
       library: state.library
     }));
   } catch (e) { /* переполнение/приватный режим — просто не сохраняем */ }
@@ -739,7 +808,7 @@ function loadState() {
         .filter(t => t && toMin(t.start) !== null && t.duration_min > 0)
         .map(t => ({ id: newId(), name: String(t.name || "Задача"),
           start: toHHMM(toMin(t.start)), duration_min: Math.round(t.duration_min),
-          color: t.color || PALETTE[0] }));
+          color: t.color || PALETTE[0], emoji: t.emoji || "" }));
     }
     if (Array.isArray(data.library) && data.library.length) {
       state.library = data.library
@@ -747,6 +816,8 @@ function loadState() {
         .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
           color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
     }
+    // эмодзи для старых сохранений без этого поля
+    state.schedule.forEach(t => { if (!t.emoji) t.emoji = emojiForName(t.name); });
   } catch (e) { /* повреждённые данные — начинаем с чистого листа */ }
 }
 function exportJSON() {
@@ -772,13 +843,15 @@ function importJSON(file) {
         .filter(t => t && toMin(t.start) !== null && t.duration_min > 0)
         .map(t => ({ id: newId(), name: String(t.name || "Задача"),
           start: toHHMM(toMin(t.start)), duration_min: Math.round(t.duration_min),
-          color: t.color || PALETTE[0] }));
+          color: t.color || PALETTE[0], emoji: "" }));
       if (Array.isArray(data.library) && data.library.length) {
         state.library = data.library
           .filter(t => t && t.name)
           .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
             color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
       }
+      // в файле импорта эмодзи у schedule нет — берём из библиотеки по имени
+      state.schedule.forEach(t => { t.emoji = emojiForName(t.name); });
       clearConflicts();
       saveState();
       renderSchedule();
@@ -793,22 +866,22 @@ function importJSON(file) {
 
 // ---------- Эталонный день (расписание и цвета из planner_clock.txt) ----------
 const REFERENCE_DAY = [
-  { name: "Сон", start: "21:30", duration_min: 540, color: "#1f3864" },
-  { name: "Подъём, утро", start: "06:30", duration_min: 60, color: "#8a5fd0" },
-  { name: "Умыться, собраться в школу", start: "07:30", duration_min: 30, color: "#ffee00" },
-  { name: "Дорога в школу", start: "08:00", duration_min: 30, color: "#c8c8c8" },
-  { name: "Школа", start: "08:30", duration_min: 270, color: "#8fbc45" },
-  { name: "Дорога домой", start: "13:00", duration_min: 30, color: "#c8c8c8" },
-  { name: "Обед", start: "13:30", duration_min: 30, color: "#ff5f9e" },
-  { name: "Сборы и дорога до секции", start: "14:00", duration_min: 30, color: "#c8c8c8" },
-  { name: "Бассейн", start: "14:30", duration_min: 90, color: "#9fd4e8" },
-  { name: "Дорога домой", start: "16:00", duration_min: 30, color: "#c8c8c8" },
-  { name: "Отдых / свободное время", start: "16:30", duration_min: 60, color: "#f26a1b" },
-  { name: "Ужин", start: "17:30", duration_min: 60, color: "#ff5f9e" },
-  { name: "Чтение", start: "18:30", duration_min: 30, color: "#a6e800" },
-  { name: "Свободное время", start: "19:00", duration_min: 90, color: "#1e6fb8" },
-  { name: "Помыться, почистить зубы", start: "20:30", duration_min: 30, color: "#ffee00" },
-  { name: "Чтение", start: "21:00", duration_min: 30, color: "#a6e800" }
+  { name: "Сон", start: "21:30", duration_min: 540, color: "#1f3864", emoji: "😴" },
+  { name: "Подъём, утро", start: "06:30", duration_min: 60, color: "#8a5fd0", emoji: "🌅" },
+  { name: "Умыться, собраться в школу", start: "07:30", duration_min: 30, color: "#ffee00", emoji: "🪥" },
+  { name: "Дорога в школу", start: "08:00", duration_min: 30, color: "#c8c8c8", emoji: "🎒" },
+  { name: "Школа", start: "08:30", duration_min: 270, color: "#8fbc45", emoji: "🏫" },
+  { name: "Дорога домой", start: "13:00", duration_min: 30, color: "#c8c8c8", emoji: "🚶" },
+  { name: "Обед", start: "13:30", duration_min: 30, color: "#ff5f9e", emoji: "🍽️" },
+  { name: "Сборы и дорога до секции", start: "14:00", duration_min: 30, color: "#c8c8c8", emoji: "🎒" },
+  { name: "Бассейн", start: "14:30", duration_min: 90, color: "#9fd4e8", emoji: "🏊" },
+  { name: "Дорога домой", start: "16:00", duration_min: 30, color: "#c8c8c8", emoji: "🚶" },
+  { name: "Отдых / свободное время", start: "16:30", duration_min: 60, color: "#f26a1b", emoji: "🎮" },
+  { name: "Ужин", start: "17:30", duration_min: 60, color: "#ff5f9e", emoji: "🍲" },
+  { name: "Чтение", start: "18:30", duration_min: 30, color: "#a6e800", emoji: "📖" },
+  { name: "Свободное время", start: "19:00", duration_min: 90, color: "#1e6fb8", emoji: "🎮" },
+  { name: "Помыться, почистить зубы", start: "20:30", duration_min: 30, color: "#ffee00", emoji: "🛁" },
+  { name: "Чтение", start: "21:00", duration_min: 30, color: "#a6e800", emoji: "📖" }
 ];
 function loadReferenceDay() {
   state.schedule = REFERENCE_DAY.map(t => Object.assign({ id: newId() }, t));
@@ -907,7 +980,16 @@ function initUI() {
   });
 
   document.getElementById("lib-add").addEventListener("click", submitLibForm);
-  document.getElementById("lib-cancel").addEventListener("click", resetLibForm);
+  buildEmojiPalette(document.getElementById("lib-emoji-palette"),
+    document.getElementById("lib-emoji"));
+  buildEmojiPalette(document.getElementById("libedit-emoji-palette"),
+    document.getElementById("libedit-emoji"));
+
+  document.getElementById("libedit-save").addEventListener("click", saveLibEdit);
+  document.getElementById("libedit-cancel").addEventListener("click", closeLibEdit);
+  document.getElementById("libedit-overlay").addEventListener("click", ev => {
+    if (ev.target.id === "libedit-overlay") closeLibEdit();
+  });
 
   document.getElementById("edit-save").addEventListener("click", saveEditPanel);
   document.getElementById("edit-delete").addEventListener("click", deleteEditTask);
