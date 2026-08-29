@@ -47,10 +47,13 @@
   #lib-form { border: 2px dashed #999; border-radius: 10px; padding: 10px; margin-top: 12px; }
   #lib-form h3 { margin: 0 0 8px; font-size: 17px; }
   #lib-form label { display: block; font-size: 14px; margin: 6px 0 2px; }
-  #lib-form input, #edit-panel input, #libedit-panel input {
+  #lib-form input, #edit-panel input, #libedit-panel input,
+  #lib-form select, #edit-panel select, #libedit-panel select {
     width: 100%; min-height: 44px; font-size: 17px; padding: 6px 10px;
-    border: 2px solid var(--line); border-radius: 8px;
+    border: 2px solid var(--line); border-radius: 8px; background: #fff;
   }
+  .timepick { display: flex; align-items: center; gap: 6px; }
+  .timepick span { font-size: 14px; color: #666; }
   #lib-form .row, #edit-panel .row, #libedit-panel .row { display: flex; gap: 8px; }
   #lib-form .row > div, #edit-panel .row > div, #libedit-panel .row > div { flex: 1; }
   #msg {
@@ -101,7 +104,7 @@
 <div id="msg"></div>
 <main>
   <div id="spiral-wrap">
-    <svg id="spiral" viewBox="-120 -120 1240 1240" role="img" aria-label="Спираль суток"></svg>
+    <svg id="spiral" viewBox="-160 -160 1320 1320" role="img" aria-label="Спираль суток"></svg>
   </div>
   <aside>
     <h2>Постоянные задачи</h2>
@@ -137,12 +140,18 @@
     <input id="edit-name" type="text" maxlength="60">
     <div class="row">
       <div>
-        <label>Время начала (ЧЧ:ММ)</label>
-        <input id="edit-start" type="text" inputmode="numeric" placeholder="07:30" maxlength="5">
+        <label>Начало</label>
+        <div class="timepick">
+          <select id="edit-start-h"></select><span>ч</span>
+          <select id="edit-start-m"></select><span>мин</span>
+        </div>
       </div>
       <div>
-        <label>Длительность, мин</label>
-        <input id="edit-duration" type="number" min="5" max="720" step="5">
+        <label>Окончание</label>
+        <div class="timepick">
+          <select id="edit-end-h"></select><span>ч</span>
+          <select id="edit-end-m"></select><span>мин</span>
+        </div>
       </div>
     </div>
     <label>Цвет</label>
@@ -213,8 +222,9 @@
 // ---------- Константы геометрии ----------
 const SVG_SIZE = 1000;
 const CX = SVG_SIZE / 2, CY = SVG_SIZE / 2;
-const R_INNER = 320;          // радиус внутреннего диска (граница уровней)
-const R_OUTER = 470;          // внешний радиус кольца (кольцо толще — место под подписи)
+const R_INNER = 300;          // радиус внутреннего диска
+const R_BAND = 360;           // внешний край белого кольца меток (между диском и кольцом задач)
+const R_OUTER = 470;          // внешний радиус кольца задач
 const SEAM_ANGLE = 120;       // шов на отметке 4 часа
 const DEG_PER_MIN = 0.5;      // 30° = 60 минут
 const MIN_PER_DEG = 2;
@@ -251,12 +261,16 @@ function timeToAngle(tMin) {
   return { angle: angleOfS(s), level: levelOfS(s) };
 }
 // Точка SVG -> { time (мин, округлено до 5), level, angle }
+// Белое кольцо меток (R_INNER..R_BAND) — не зона сброса: относим
+// к ближайшему уровню.
 function pointToTime(x, y) {
   const dx = x - CX, dy = y - CY;
   const r = Math.hypot(dx, dy);
   let angle = Math.atan2(dx, -dy) * 180 / Math.PI; // по часовой от верха
   angle = ((angle % 360) + 360) % 360;
-  const level = r < R_INNER ? "inner" : "outer";
+  const level = r < R_INNER ? "inner"
+    : r >= R_BAND ? "outer"
+    : (r < (R_INNER + R_BAND) / 2 ? "inner" : "outer");
   const s = ((angle - SEAM_ANGLE) % 360 + 360) % 360 * MIN_PER_DEG;
   let t = level === "inner" ? SEAM_MIN + s : (960 + s) % DAY_MIN;
   t = (Math.round(t / SNAP_MIN) * SNAP_MIN) % DAY_MIN;
@@ -316,6 +330,10 @@ let conflictIds = [];
 // Возвращает [{ s0, s1, level, task }] в спиральных координатах [0,1440).
 function piecesOf(task) {
   const startMin = toMin(task.start);
+  // страж: битая задача (нет времени или длительности) не должна
+  // ломать рендер всей спирали — просто не рисуем её
+  if (startMin === null || !Number.isFinite(task.duration_min) ||
+      !(task.duration_min > 0)) return [];
   const s0 = spiralCoord(startMin);
   const end = s0 + task.duration_min;
   const pieces = [];
@@ -376,38 +394,47 @@ function renderSchedule() {
   const svg = document.getElementById("spiral");
   svg.innerHTML = "";
 
-  // Фон: незапланированное время (весь круг всегда заполнен)
+  // Фон: незапланированное время (весь круг всегда заполнен).
+  // Белое кольцо между диском и внешним кольцом — зона меток внутреннего диска.
   el("circle", { cx: CX, cy: CY, r: R_INNER, fill: FREE_COLOR, stroke: "#333", "stroke-width": 1.5 }, svg);
-  el("path", { d: sectorPath(R_INNER, R_OUTER, SEAM_ANGLE, SEAM_ANGLE + 360),
+  el("path", { d: sectorPath(R_INNER, R_BAND, 0, 360),
+    fill: "#fff", stroke: "#333", "stroke-width": 1, "stroke-opacity": 0.5 }, svg);
+  el("path", { d: sectorPath(R_BAND, R_OUTER, SEAM_ANGLE, SEAM_ANGLE + 360),
     fill: FREE_COLOR, stroke: "#333", "stroke-width": 1.5 }, svg);
 
   // Часовые линии-разделители на обоих уровнях (тонкие, как на эталоне)
   for (let s = 0; s < DAY_MIN; s += 60) {
     const a = angleOfS(s);
     const inner = levelOfS(s) === "inner";
-    const p0 = polar(inner ? 0 : R_INNER, a), p1 = polar(inner ? R_INNER : R_OUTER, a);
+    const p0 = polar(inner ? 0 : R_BAND, a), p1 = polar(inner ? R_INNER : R_OUTER, a);
     el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
       "stroke-width": 1, "stroke-opacity": 0.35 }, svg);
   }
 
-  // Сегменты задач (кусок через шов рисуется двумя смежными частями одного цвета)
+  // Сегменты задач (кусок через шов рисуется двумя смежными частями одного цвета).
+  // Битая задача не должна ломать весь рендер: пропускаем её и сообщаем.
   for (const task of state.schedule) {
-    for (const p of piecesOf(task)) {
-      const rIn = p.level === "inner" ? 0 : R_INNER;
-      const rOut = p.level === "inner" ? R_INNER : R_OUTER;
-      const a0 = SEAM_ANGLE + p.s0 * DEG_PER_MIN, a1 = SEAM_ANGLE + p.s1 * DEG_PER_MIN;
-      const path = el("path", {
-        d: sectorPath(rIn, rOut, a0, a1), fill: task.color,
-        stroke: "#333", "stroke-width": 1.5, "class": "seg" +
-          (conflictIds.includes(task.id) ? " conflict" : "")
-      }, svg);
-      path.dataset.taskId = task.id;
-      // всплывающая подсказка: полное название и время (важно для узких
-      // сегментов, где внутри только эмодзи)
-      const tip = el("title", {}, path);
-      tip.textContent = task.name + " — " + task.start + "–" +
-        toHHMM(toMin(task.start) + task.duration_min) + " (" + task.duration_min + " мин)";
-      path.addEventListener("click", () => openEditPanel(task.id));
+    try {
+      for (const p of piecesOf(task)) {
+        const rIn = p.level === "inner" ? 0 : R_BAND;
+        const rOut = p.level === "inner" ? R_INNER : R_OUTER;
+        const a0 = SEAM_ANGLE + p.s0 * DEG_PER_MIN, a1 = SEAM_ANGLE + p.s1 * DEG_PER_MIN;
+        const path = el("path", {
+          d: sectorPath(rIn, rOut, a0, a1), fill: task.color,
+          stroke: "#333", "stroke-width": 1.5, "class": "seg" +
+            (conflictIds.includes(task.id) ? " conflict" : "")
+        }, svg);
+        path.dataset.taskId = task.id;
+        // всплывающая подсказка: полное название и время (важно для узких
+        // сегментов, где внутри только эмодзи)
+        const tip = el("title", {}, path);
+        tip.textContent = task.name + " — " + task.start + "–" +
+          toHHMM(toMin(task.start) + task.duration_min) + " (" + task.duration_min + " мин)";
+        path.addEventListener("click", () => openEditPanel(task.id));
+      }
+    } catch (err) {
+      console.error("renderSchedule: пропущена задача", task, err);
+      showMessage("Ошибка отображения задачи «" + (task && task.name || "?") + "»");
     }
   }
 
@@ -419,19 +446,27 @@ function renderSchedule() {
       "stroke-width": 3 }, svg);
   }
 
-  renderTaskLabels(svg);
-  renderTimeLabels(svg);
+  // Подписи — тоже под защитой: при любой ошибке спираль уже нарисована
+  try {
+    renderTaskLabels(svg);
+    renderTimeLabels(svg);
+  } catch (err) {
+    console.error("renderSchedule: ошибка подписей", err);
+    showMessage("Ошибка отображения подписей: " + err.message);
+  }
 }
 
-// Подписи задач: прямой текст вдоль хорды сегмента на среднем радиусе уровня.
-// Угол поворота = угол середины сегмента − 90°; вверх ногами — переворачиваем.
-// Лестница автоподбора: полный текст → уменьшенный и уплотнённый текст →
+// Подписи задач: эмодзи + название, прямой текст вдоль хорды сегмента на
+// среднем радиусе уровня. Угол поворота = угол середины сегмента − 90°;
+// вверх ногами — переворачиваем.
+// Лестница автоподбора: эмодзи+текст → уменьшенный и уплотнённый текст →
 // только эмодзи (узкие сегменты ~15 мин и меньше) крупно по центру сегмента;
-// полное название и время — во всплывающей подсказке (title на сегменте).
+// если не влезает даже эмодзи — выноска снаружи круга на линии-указателе.
+// Полное название и время — во всплывающей подсказке (title на сегменте).
 function renderTaskLabels(svg) {
-  const R_MID = { inner: R_INNER / 2, outer: (R_INNER + R_OUTER) / 2 };
+  const R_MID = { inner: R_INNER / 2, outer: (R_BAND + R_OUTER) / 2 };
   // доступная длина текста вдоль уровня (с полями)
-  const MAX_LEN = { inner: R_INNER - 40, outer: R_OUTER - R_INNER - 16 };
+  const MAX_LEN = { inner: R_INNER - 40, outer: R_OUTER - R_BAND - 16 };
   const FONT_STEPS = { inner: [26, 18], outer: [24, 18] };
 
   // по одной подписи на задачу на уровень — берём самый широкий кусок
@@ -450,6 +485,7 @@ function renderTaskLabels(svg) {
     const midA = SEAM_ANGLE + ((p.s0 + p.s1) / 2) * DEG_PER_MIN;
     const rMid = R_MID[p.level];
     const maxLen = MAX_LEN[p.level];
+    const label = (task.emoji || "⭐") + " " + task.name;
 
     let placed = false;
     const steps = FONT_STEPS[p.level];
@@ -459,7 +495,7 @@ function renderTaskLabels(svg) {
         "text-anchor": "middle", "dominant-baseline": "middle",
         "font-size": fs, "font-weight": 600, "pointer-events": "none"
       }, svg);
-      t.textContent = task.name;
+      t.textContent = label;
       const natLen = t.getComputedTextLength();
       // последний шаг лестницы — с уплотнением (сжатие по горизонтали)
       const condense = i === steps.length - 1 && natLen > maxLen;
@@ -487,28 +523,49 @@ function renderTaskLabels(svg) {
     }
 
     if (!placed) {
-      // узкий сегмент: внутри только эмодзи, крупно и по центру;
-      // размер — по дуговой ширине и толщине уровня
       const arcW = rMid * sweepRad;
-      const radial = p.level === "inner" ? rMid : R_OUTER - R_INNER;
-      const fs = Math.max(20, Math.min(arcW * 0.75, radial * 0.6, 72));
-      const pos = polar(rMid, midA);
-      const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
-        "dominant-baseline": "central", "font-size": fs,
-        "pointer-events": "none" }, svg);
-      t.textContent = task.emoji || "⭐";
+      if (arcW >= 20) {
+        // узкий сегмент: внутри только эмодзи, крупно и по центру;
+        // размер — по дуговой ширине и толщине уровня
+        const radial = p.level === "inner" ? rMid : R_OUTER - R_BAND;
+        const fs = Math.max(20, Math.min(arcW * 0.75, radial * 0.6, 72));
+        const pos = polar(rMid, midA);
+        const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+          "dominant-baseline": "central", "font-size": fs,
+          "pointer-events": "none" }, svg);
+        t.textContent = task.emoji || "⭐";
+      } else {
+        // совсем узкий сегмент: выноска снаружи круга — линия-указатель
+        // от края спирали к горизонтальному тексту «эмодзи + название»
+        const p0 = polar(R_OUTER, midA), p1 = polar(R_OUTER + 140, midA);
+        el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+          "stroke-width": 1, "stroke-opacity": 0.6, "pointer-events": "none" }, svg);
+        const pos = polar(R_OUTER + 150, midA);
+        const right = Math.cos(midA * Math.PI / 180) >= 0;
+        const t = el("text", { x: pos.x, y: pos.y,
+          "text-anchor": right ? "start" : "end",
+          "dominant-baseline": "middle", "font-size": 16, fill: "#222",
+          "class": "tmark", "pointer-events": "none" }, svg);
+        t.textContent = label;
+        if (t.getComputedTextLength() > 160) {
+          t.setAttribute("textLength", 160);
+          t.setAttribute("lengthAdjust", "spacingAndGlyphs");
+        }
+      }
     }
   }
 }
 
 // Часовые метки: круглые часы обоих уровней + времена границ задач.
-// Все метки строго СНАРУЖИ круга, двумя радиальными ярусами с
-// линиями-указателями: ближний ярус — время внутреннего диска,
-// дальний — внешнего кольца (на одном луче они различаются на 12 ч).
+// Метки внутреннего диска (04:00–16:00) — в белом кольце между диском и
+// внешним кольцом, горизонтально, без линий-указателей.
+// Метки внешнего кольца — снаружи круга с линиями-указателями
+// (на одном луче они различаются на 12 ч).
 // Шрифт меток меньше шрифта подписей задач.
 function renderTimeLabels(svg) {
-  const R_TEXT = { inner: R_OUTER + 48, outer: R_OUTER + 116 };
-  const R_LINE = { inner: [R_OUTER + 4, R_OUTER + 32], outer: [R_OUTER + 70, R_OUTER + 100] };
+  const R_BAND_MID = (R_INNER + R_BAND) / 2;
+  const R_TEXT_OUTER = R_OUTER + 116;
+  const R_LINE_OUTER = [R_OUTER + 70, R_OUTER + 100];
   const innerTimes = new Set(), outerTimes = new Set();
   for (let s = 0; s < DAY_MIN; s += 60) {
     const t = (SEAM_MIN + s) % DAY_MIN;
@@ -521,13 +578,22 @@ function renderTimeLabels(svg) {
     }
   }
   const drawLabel = (tm, isInner) => {
-    const level = isInner ? "inner" : "outer";
     const a = angleOfS(spiralCoord(tm));
-    const [r0, r1] = R_LINE[level];
+    if (isInner) {
+      // метка в белом кольце: горизонтальный текст, без указателя
+      const pos = polar(R_BAND_MID, a);
+      const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+        "dominant-baseline": "middle", "font-size": 18, fill: "#222",
+        "class": "tmark", "pointer-events": "none" }, svg);
+      t.textContent = toHHMM(tm);
+      return;
+    }
+    // метка внешнего кольца: снаружи, с линией-указателем
+    const [r0, r1] = R_LINE_OUTER;
     const p0 = polar(r0, a), p1 = polar(r1, a);
     el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
       "stroke-width": 1.2, "pointer-events": "none" }, svg);
-    const pos = polar(R_TEXT[level], a);
+    const pos = polar(R_TEXT_OUTER, a);
     const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
       "dominant-baseline": "middle", "font-size": 20, fill: "#222",
       "class": "tmark", "pointer-events": "none" }, svg);
@@ -705,7 +771,7 @@ function svgPointFromClient(clientX, clientY) {
   const m = svg.getScreenCTM();
   if (!m) return null;
   const pt = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
-  if (pt.x < -120 || pt.x > 1120 || pt.y < -120 || pt.y > 1120) return null;
+  if (pt.x < -160 || pt.x > 1160 || pt.y < -160 || pt.y > 1160) return null;
   return { x: pt.x, y: pt.y };
 }
 function onDragMove(ev) {
@@ -737,16 +803,49 @@ function onDragEnd(ev) {
 }
 
 // ---------- Панель редактирования сегмента ----------
+// Время вводится двумя селектами: часы 0–23 и минуты с шагом 5.
+// Вместо длительности — поля «Начало» и «Окончание»; переход через полночь
+// допустим (окончание раньше начала = следующий день), внутри по-прежнему
+// start + duration_min.
 let editTaskId = null;
 let editColor = PALETTE[0];
+function fillTimeSelects() {
+  const pad2 = n => String(n).padStart(2, "0");
+  for (const [hId, mId] of [["edit-start-h", "edit-start-m"], ["edit-end-h", "edit-end-m"]]) {
+    const hSel = document.getElementById(hId), mSel = document.getElementById(mId);
+    hSel.innerHTML = "";
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement("option");
+      o.value = h; o.textContent = pad2(h);
+      hSel.appendChild(o);
+    }
+    mSel.innerHTML = "";
+    for (let m = 0; m < 60; m += 5) {
+      const o = document.createElement("option");
+      o.value = m; o.textContent = pad2(m);
+      mSel.appendChild(o);
+    }
+  }
+}
+function setTimeSelects(hId, mId, minutes) {
+  const m5 = Math.round(minutes / 5) * 5 % DAY_MIN; // округление к шагу 5 мин
+  document.getElementById(hId).value = Math.floor(m5 / 60);
+  document.getElementById(mId).value = m5 % 60;
+}
+function getTimeSelects(hId, mId) {
+  return parseInt(document.getElementById(hId).value, 10) * 60 +
+    parseInt(document.getElementById(mId).value, 10);
+}
 function openEditPanel(taskId) {
   const task = state.schedule.find(t => t.id === taskId);
   if (!task) return;
   editTaskId = taskId;
   editColor = task.color;
   document.getElementById("edit-name").value = task.name;
-  document.getElementById("edit-start").value = task.start;
-  document.getElementById("edit-duration").value = task.duration_min;
+  const startMin = toMin(task.start);
+  const endMin = (startMin + task.duration_min) % DAY_MIN;
+  setTimeSelects("edit-start-h", "edit-start-m", startMin);
+  setTimeSelects("edit-end-h", "edit-end-m", endMin);
   buildPalette(document.getElementById("edit-palette"), () => editColor, c => { editColor = c; });
   document.getElementById("edit-overlay").style.display = "flex";
 }
@@ -758,11 +857,12 @@ function saveEditPanel() {
   const task = state.schedule.find(t => t.id === editTaskId);
   if (!task) { closeEditPanel(); return; }
   const name = document.getElementById("edit-name").value.trim();
-  const startMin = toMin(document.getElementById("edit-start").value);
-  const dur = parseInt(document.getElementById("edit-duration").value, 10);
+  const startMin = getTimeSelects("edit-start-h", "edit-start-m");
+  const endMin = getTimeSelects("edit-end-h", "edit-end-m");
+  const dur = (endMin - startMin + DAY_MIN) % DAY_MIN;
   if (!name) { showMessage("Введите название задачи"); return; }
-  if (startMin === null) { showMessage("Время начала должно быть в формате ЧЧ:ММ"); return; }
-  if (!(dur >= 5 && dur <= 720)) { showMessage("Длительность — от 5 до 720 минут"); return; }
+  if (dur === 0) { showMessage("Окончание должно быть позже начала"); return; }
+  if (dur < 5 || dur > 720) { showMessage("Задача должна длиться от 5 минут до 12 часов"); return; }
   const conflicts = findConflicts(startMin, dur, task.id);
   if (conflicts.length) {
     setConflicts(conflicts.concat([task]));
@@ -787,6 +887,23 @@ function deleteEditTask() {
 
 // ---------- localStorage, экспорт/импорт ----------
 const LS_KEY = "dayPlannerState.v1";
+// Валидация задач расписания при загрузке/импорте: время начала в формате
+// ЧЧ:ММ, длительность — конечное число (кламп 5..1440 мин). Некорректные
+// задачи пропускаются, чтобы битые данные не ломали рендер спирали.
+function sanitizeSchedule(list) {
+  const tasks = [];
+  let skipped = 0;
+  for (const t of list) {
+    const startMin = t ? toMin(t.start) : null;
+    const dur = t ? Number(t.duration_min) : NaN;
+    if (startMin === null || !Number.isFinite(dur) || dur <= 0) { skipped++; continue; }
+    tasks.push({ id: newId(), name: String(t.name || "Задача"),
+      start: toHHMM(startMin),
+      duration_min: Math.min(DAY_MIN, Math.max(5, Math.round(dur))),
+      color: t.color || PALETTE[0], emoji: t.emoji || "" });
+  }
+  return { tasks, skipped };
+}
 function saveState() {
   if (typeof localStorage === "undefined") return;
   try {
@@ -804,11 +921,7 @@ function loadState() {
     if (!raw) return;
     const data = JSON.parse(raw);
     if (Array.isArray(data.schedule)) {
-      state.schedule = data.schedule
-        .filter(t => t && toMin(t.start) !== null && t.duration_min > 0)
-        .map(t => ({ id: newId(), name: String(t.name || "Задача"),
-          start: toHHMM(toMin(t.start)), duration_min: Math.round(t.duration_min),
-          color: t.color || PALETTE[0], emoji: t.emoji || "" }));
+      state.schedule = sanitizeSchedule(data.schedule).tasks;
     }
     if (Array.isArray(data.library) && data.library.length) {
       state.library = data.library
@@ -839,11 +952,9 @@ function importJSON(file) {
     try {
       const data = JSON.parse(reader.result);
       if (!Array.isArray(data.schedule)) throw new Error("нет поля schedule");
-      state.schedule = data.schedule
-        .filter(t => t && toMin(t.start) !== null && t.duration_min > 0)
-        .map(t => ({ id: newId(), name: String(t.name || "Задача"),
-          start: toHHMM(toMin(t.start)), duration_min: Math.round(t.duration_min),
-          color: t.color || PALETTE[0], emoji: "" }));
+      const { tasks, skipped } = sanitizeSchedule(data.schedule);
+      if (!tasks.length) throw new Error("нет ни одной корректной задачи");
+      state.schedule = tasks;
       if (Array.isArray(data.library) && data.library.length) {
         state.library = data.library
           .filter(t => t && t.name)
@@ -854,12 +965,16 @@ function importJSON(file) {
       state.schedule.forEach(t => { t.emoji = emojiForName(t.name); });
       clearConflicts();
       saveState();
-      renderSchedule();
-      renderLibrary();
-      showMessage("Расписание импортировано");
+      showMessage(skipped
+        ? "Импортировано " + tasks.length + " задач, пропущено некорректных: " + skipped
+        : "Импортировано задач: " + tasks.length);
     } catch (e) {
       showMessage("Не удалось импортировать файл: " + e.message);
     }
+    // спираль и библиотека перерисовываются всегда — даже при битом файле
+    // интерфейс остаётся в рабочем состоянии
+    renderSchedule();
+    renderLibrary();
   };
   reader.readAsText(file);
 }
@@ -967,6 +1082,7 @@ function runSelfTest() {
 // ---------- Инициализация UI ----------
 function initUI() {
   loadState();
+  fillTimeSelects();
   renderSchedule();
   renderLibrary();
 
