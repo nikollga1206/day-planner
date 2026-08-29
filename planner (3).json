@@ -1,0 +1,192 @@
+{
+  "schedule": [
+    {
+      "name": "Сон",
+      "start": "21:30",
+      "duration_min": 540,
+      "color": "#1f3864"
+    },
+    {
+      "name": "Подъём, утро",
+      "start": "06:30",
+      "duration_min": 60,
+      "color": "#8a5fd0"
+    },
+    {
+      "name": "Умыться, собраться в школу",
+      "start": "07:30",
+      "duration_min": 30,
+      "color": "#ffee00"
+    },
+    {
+      "name": "Дорога в школу",
+      "start": "08:00",
+      "duration_min": 30,
+      "color": "#c8c8c8"
+    },
+    {
+      "name": "Школа",
+      "start": "08:30",
+      "duration_min": 270,
+      "color": "#8fbc45"
+    },
+    {
+      "name": "Дорога домой",
+      "start": "13:00",
+      "duration_min": 30,
+      "color": "#c8c8c8"
+    },
+    {
+      "name": "Обед",
+      "start": "13:30",
+      "duration_min": 30,
+      "color": "#ff5f9e"
+    },
+    {
+      "name": "Сборы и дорога до секции",
+      "start": "14:00",
+      "duration_min": 30,
+      "color": "#c8c8c8"
+    },
+    {
+      "name": "Бассейн",
+      "start": "14:30",
+      "duration_min": 90,
+      "color": "#9fd4e8"
+    },
+    {
+      "name": "Дорога домой",
+      "start": "16:00",
+      "duration_min": 30,
+      "color": "#c8c8c8"
+    },
+    {
+      "name": "Отдых / свободное время",
+      "start": "16:30",
+      "duration_min": 60,
+      "color": "#f26a1b"
+    },
+    {
+      "name": "Ужин",
+      "start": "17:30",
+      "duration_min": 60,
+      "color": "#ff5f9e"
+    },
+    {
+      "name": "Чтение",
+      "start": "18:30",
+      "duration_min": 30,
+      "color": "#a6e800"
+    },
+    {
+      "name": "Свободное время",
+      "start": "19:00",
+      "duration_min": 90,
+      "color": "#1e6fb8"
+    },
+    {
+      "name": "Помыться, почистить зубы",
+      "start": "20:30",
+      "duration_min": 30,
+      "color": "#ffee00"
+    },
+    {
+      "name": "Чтение",
+      "start": "21:00",
+      "duration_min": 30,
+      "color": "#a6e800"
+    }
+  ],
+  "library": [
+    {
+      "name": "Сон",
+      "duration_min": 60,
+      "color": "#1f3864",
+      "emoji": "😴"
+    },
+    {
+      "name": "Подъём",
+      "duration_min": 60,
+      "color": "#8a5fd0",
+      "emoji": "🌅"
+    },
+    {
+      "name": "Умыться, почистить зубы",
+      "duration_min": 30,
+      "color": "#ffee00",
+      "emoji": "🪥"
+    },
+    {
+      "name": "Завтрак",
+      "duration_min": 30,
+      "color": "#ff9e3d",
+      "emoji": "🍳"
+    },
+    {
+      "name": "Дорога в школу",
+      "duration_min": 30,
+      "color": "#c8c8c8",
+      "emoji": "🎒"
+    },
+    {
+      "name": "Школа",
+      "duration_min": 270,
+      "color": "#8fbc45",
+      "emoji": "🏫"
+    },
+    {
+      "name": "Дорога домой",
+      "duration_min": 30,
+      "color": "#c8c8c8",
+      "emoji": "🚶"
+    },
+    {
+      "name": "Обед",
+      "duration_min": 30,
+      "color": "#ff5f9e",
+      "emoji": "🍽️"
+    },
+    {
+      "name": "Домашние задания",
+      "duration_min": 60,
+      "color": "#f26a1b",
+      "emoji": "📚"
+    },
+    {
+      "name": "Секция / бассейн",
+      "duration_min": 90,
+      "color": "#9fd4e8",
+      "emoji": "🏊"
+    },
+    {
+      "name": "Свободное время",
+      "duration_min": 90,
+      "color": "#1e6fb8",
+      "emoji": "🎮"
+    },
+    {
+      "name": "Ужин",
+      "duration_min": 60,
+      "color": "#ff5f9e",
+      "emoji": "🍲"
+    },
+    {
+      "name": "Чтение",
+      "duration_min": 30,
+      "color": "#a6e800",
+      "emoji": "📖"
+    },
+    {
+      "name": "Подготовка ко сну",
+      "duration_min": 30,
+      "color": "#ffee00",
+      "emoji": "🛁"
+    },
+    {
+      "name": "Выгулять Вольта",
+      "duration_min": 30,
+      "color": "#9fd4e8",
+      "emoji": ":)"
+    }
+  ]
+}

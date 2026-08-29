@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Планировщик дня — Спираль суток</title>
+<style>
+  :root {
+    --ink: #222;
+    --line: #333;
+    --accent: #1e6fb8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #fff; color: var(--ink);
+    font-family: "Segoe UI", Arial, sans-serif; }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 2px solid var(--line);
+  }
+  header h1 { font-size: 22px; margin: 0 16px 0 0; }
+  button {
+    min-height: 44px; min-width: 44px; padding: 8px 16px; font-size: 17px;
+    border: 2px solid var(--line); border-radius: 10px; background: #fff;
+    cursor: pointer;
+  }
+  button:hover { background: #f0f0f0; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { display: flex; flex-wrap: wrap; align-items: flex-start; }
+  #spiral-wrap { flex: 1 1 480px; min-width: 320px; padding: 8px; display: flex; justify-content: center; }
+  #spiral { width: min(100%, calc(100vh - 150px)); height: auto; display: block; touch-action: none; }
+  aside {
+    flex: 0 0 340px; max-width: 100%; padding: 12px; border-left: 2px solid var(--line);
+  }
+  aside h2 { font-size: 20px; margin: 4px 0 10px; }
+  .hint { font-size: 14px; color: #666; margin: 0 0 10px; }
+  .lib-item {
+    display: flex; align-items: center; gap: 8px; min-height: 44px;
+    padding: 6px 8px; margin-bottom: 6px; border: 2px solid var(--line);
+    border-radius: 10px; background: #fff; cursor: grab; touch-action: none;
+    user-select: none; -webkit-user-select: none; font-size: 16px;
+  }
+  .lib-item .swatch { width: 26px; height: 26px; border-radius: 6px; border: 1px solid var(--line); flex: 0 0 auto; }
+  .lib-item .emoji { font-size: 22px; flex: 0 0 auto; }
+  .lib-item .nm { flex: 1 1 auto; }
+  .lib-item .dur { color: #666; font-size: 14px; flex: 0 0 auto; }
+  .lib-item button { min-height: 36px; min-width: 36px; padding: 2px 6px; font-size: 15px; border-radius: 8px; }
+  #lib-form { border: 2px dashed #999; border-radius: 10px; padding: 10px; margin-top: 12px; }
+  #lib-form h3 { margin: 0 0 8px; font-size: 17px; }
+  #lib-form label { display: block; font-size: 14px; margin: 6px 0 2px; }
+  #lib-form input, #edit-panel input, #libedit-panel input,
+  #lib-form select, #edit-panel select, #libedit-panel select {
+    width: 100%; min-height: 44px; font-size: 17px; padding: 6px 10px;
+    border: 2px solid var(--line); border-radius: 8px; background: #fff;
+  }
+  .timepick { display: flex; align-items: center; gap: 6px; }
+  .timepick span { font-size: 14px; color: #666; }
+  #lib-form .row, #edit-panel .row, #libedit-panel .row { display: flex; gap: 8px; }
+  #lib-form .row > div, #edit-panel .row > div, #libedit-panel .row > div { flex: 1; }
+  #msg {
+    display: none; position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+    background: #e84c3d; color: #fff; font-size: 17px; padding: 12px 20px;
+    border-radius: 10px; z-index: 30; max-width: 90%; box-shadow: 0 2px 10px rgba(0,0,0,.3);
+  }
+  #edit-overlay, #libedit-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20;
+    align-items: center; justify-content: center;
+  }
+  #edit-panel, #libedit-panel {
+    background: #fff; border: 2px solid var(--line); border-radius: 14px;
+    padding: 16px; width: min(420px, 92vw); max-height: 90vh; overflow: auto;
+  }
+  #edit-panel h3, #libedit-panel h3 { margin: 0 0 8px; font-size: 19px; }
+  #edit-panel label, #libedit-panel label { display: block; font-size: 14px; margin: 8px 0 2px; }
+  .palette { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+  .palette .pcolor {
+    width: 44px; height: 44px; border-radius: 8px; border: 2px solid var(--line); cursor: pointer;
+  }
+  .palette .pcolor.sel { outline: 4px solid var(--accent); }
+  .epalette { gap: 4px; }
+  .epick {
+    min-width: 44px; width: 44px; height: 44px; min-height: 44px; padding: 0;
+    font-size: 24px; line-height: 1; border-radius: 8px;
+  }
+  #edit-panel .btns, #libedit-panel .btns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  #drag-ghost {
+    display: none; position: fixed; z-index: 40; pointer-events: none;
+    padding: 10px 14px; border: 2px solid var(--line); border-radius: 10px;
+    background: #fff; font-size: 17px; box-shadow: 0 4px 14px rgba(0,0,0,.3);
+  }
+  .seg { cursor: pointer; }
+  .seg.conflict { stroke: #e84c3d; stroke-width: 6; }
+  /* часовые метки: белое гало, чтобы читались над линиями-указателями */
+  .tmark { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🕐 Спираль суток</h1>
+  <button id="btn-reference" class="primary">Загрузить эталонный день</button>
+  <button id="btn-export">Экспорт JSON</button>
+  <button id="btn-import">Импорт JSON</button>
+  <input type="file" id="import-file" accept="application/json,.json" style="display:none">
+</header>
+<div id="msg"></div>
+<main>
+  <div id="spiral-wrap">
+    <svg id="spiral" viewBox="-160 -160 1320 1320" role="img" aria-label="Спираль суток"></svg>
+  </div>
+  <aside>
+    <h2>Постоянные задачи</h2>
+    <p class="hint">Перетащите задачу на спираль. Нажмите на сегмент спирали, чтобы изменить его.</p>
+    <div id="lib-list"></div>
+    <div id="lib-form">
+      <h3 id="lib-form-title">Новая задача</h3>
+      <label>Название</label>
+      <input id="lib-name" type="text" maxlength="60" placeholder="Например: Прогулка">
+      <div class="row">
+        <div>
+          <label>Длительность, мин</label>
+          <input id="lib-duration" type="number" min="5" max="720" step="5" value="30">
+        </div>
+        <div>
+          <label>Эмодзи</label>
+          <input id="lib-emoji" type="text" maxlength="4" value="⭐">
+        </div>
+      </div>
+      <div class="palette epalette" id="lib-emoji-palette"></div>
+      <label>Цвет</label>
+      <div class="palette" id="lib-palette"></div>
+      <div class="btns" style="display:flex;gap:8px;margin-top:12px;">
+        <button id="lib-add" class="primary">Добавить</button>
+      </div>
+    </div>
+  </aside>
+</main>
+<div id="edit-overlay">
+  <div id="edit-panel">
+    <h3>Изменить задачу</h3>
+    <label>Название</label>
+    <input id="edit-name" type="text" maxlength="60">
+    <div class="row">
+      <div>
+        <label>Начало</label>
+        <div class="timepick">
+          <select id="edit-start-h"></select><span>ч</span>
+          <select id="edit-start-m"></select><span>мин</span>
+        </div>
+      </div>
+      <div>
+        <label>Окончание</label>
+        <div class="timepick">
+          <select id="edit-end-h"></select><span>ч</span>
+          <select id="edit-end-m"></select><span>мин</span>
+        </div>
+      </div>
+    </div>
+    <label>Цвет</label>
+    <div class="palette" id="edit-palette"></div>
+    <div class="btns">
+      <button id="edit-save" class="primary">Сохранить</button>
+      <button id="edit-delete">Удалить</button>
+      <button id="edit-close">Закрыть</button>
+    </div>
+  </div>
+</div>
+<div id="libedit-overlay">
+  <div id="libedit-panel">
+    <h3>Изменить задачу</h3>
+    <label>Название</label>
+    <input id="libedit-name" type="text" maxlength="60">
+    <div class="row">
+      <div>
+        <label>Длительность, мин</label>
+        <input id="libedit-duration" type="number" min="5" max="720" step="5">
+      </div>
+      <div>
+        <label>Эмодзи</label>
+        <input id="libedit-emoji" type="text" maxlength="4">
+      </div>
+    </div>
+    <div class="palette epalette" id="libedit-emoji-palette"></div>
+    <label>Цвет</label>
+    <div class="palette" id="libedit-palette"></div>
+    <div class="btns">
+      <button id="libedit-save" class="primary">Сохранить</button>
+      <button id="libedit-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+<div id="drag-ghost"></div>
+<script>
+"use strict";
+/* ============================================================
+ * Спираль суток — планировщик дня.
+ *
+ * Геометрия: круг из двух уровней со швом на отметке 4 часа
+ * (120° по часовой стрелке от верха). 1 час = 30°.
+ *   внутренний диск  = 04:00–16:00 (день),
+ *   внешнее кольцо   = 16:00–04:00 (вечер и ночь).
+ * Угол α измеряется по часовой стрелке от верха.
+ *   внутренний диск:  t = 04:00 + ((α − 120°) mod 360°)/30° часов
+ *   внешнее кольцо:   t = 16:00 + ((α − 120°) mod 360°)/30° часов
+ *
+ * Формат файла экспорта/импорта JSON (его читает внешний
+ * агент-напоминалка — структуру не менять!):
+ * {
+ *   "schedule": [                      // задачи текущих суток
+ *     { "name": "Сон",                 // название задачи
+ *       "start": "21:30",              // время начала, ЧЧ:ММ (00:00–23:59)
+ *       "duration_min": 540,           // длительность в минутах
+ *       "color": "#1f3864" }           // цвет сегмента, HEX
+ *   ],
+ *   "library": [                       // библиотека постоянных задач
+ *     { "name": "Сон",                 // название
+ *       "duration_min": 540,           // длительность по умолчанию
+ *       "color": "#1f3864",            // цвет, HEX
+ *       "emoji": "😴" }                // значок
+ *   ]
+ * }
+ * ============================================================ */
+
+// ---------- Константы геометрии ----------
+const SVG_SIZE = 1000;
+const CX = SVG_SIZE / 2, CY = SVG_SIZE / 2;
+const R_INNER = 300;          // радиус внутреннего диска
+const R_BAND = 360;           // внешний край белого кольца меток (между диском и кольцом задач)
+const R_OUTER = 470;          // внешний радиус кольца задач
+const SEAM_ANGLE = 120;       // шов на отметке 4 часа
+const DEG_PER_MIN = 0.5;      // 30° = 60 минут
+const MIN_PER_DEG = 2;
+const SNAP_MIN = 5;           // округление до 5 минут
+const DAY_MIN = 1440;
+const HALF_MIN = 720;         // граница уровней в «спиральных» минутах
+const SEAM_MIN = 240;         // 04:00 в минутах от полуночи
+const FREE_COLOR = "#e8e8e8"; // незапланированное время
+const PALETTE = ["#1f3864", "#8a5fd0", "#ffee00", "#c8c8c8", "#8fbc45",
+  "#ff5f9e", "#9fd4e8", "#f26a1b", "#a6e800", "#1e6fb8", "#e84c3d", "#7a4a21"];
+
+// ---------- Утилиты времени и углов ----------
+function toMin(hhmm) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm).trim());
+  if (!m) return null;
+  const t = (+m[1]) * 60 + (+m[2]);
+  return t >= 0 && t < DAY_MIN ? t : null;
+}
+function toHHMM(t) {
+  t = ((Math.round(t) % DAY_MIN) + DAY_MIN) % DAY_MIN;
+  const h = Math.floor(t / 60), m = t % 60;
+  return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+}
+// «Спиральная координата»: минуты от шва 04:00, 0..1439.
+// 0..719 — внутренний диск (04:00–16:00), 720..1439 — внешнее кольцо (16:00–04:00).
+function spiralCoord(tMin) {
+  return ((tMin - SEAM_MIN) % DAY_MIN + DAY_MIN) % DAY_MIN;
+}
+function levelOfS(s) { return s < HALF_MIN ? "inner" : "outer"; }
+function angleOfS(s) { return (SEAM_ANGLE + s * DEG_PER_MIN) % 360; }
+// Время -> { angle, level }
+function timeToAngle(tMin) {
+  const s = spiralCoord(tMin);
+  return { angle: angleOfS(s), level: levelOfS(s) };
+}
+// Точка SVG -> { time (мин, округлено до 5), level, angle }
+// Белое кольцо меток (R_INNER..R_BAND) — не зона сброса: относим
+// к ближайшему уровню.
+function pointToTime(x, y) {
+  const dx = x - CX, dy = y - CY;
+  const r = Math.hypot(dx, dy);
+  let angle = Math.atan2(dx, -dy) * 180 / Math.PI; // по часовой от верха
+  angle = ((angle % 360) + 360) % 360;
+  const level = r < R_INNER ? "inner"
+    : r >= R_BAND ? "outer"
+    : (r < (R_INNER + R_BAND) / 2 ? "inner" : "outer");
+  const s = ((angle - SEAM_ANGLE) % 360 + 360) % 360 * MIN_PER_DEG;
+  let t = level === "inner" ? SEAM_MIN + s : (960 + s) % DAY_MIN;
+  t = (Math.round(t / SNAP_MIN) * SNAP_MIN) % DAY_MIN;
+  return { time: t, level, angle };
+}
+function polar(r, angleDeg) {
+  const a = angleDeg * Math.PI / 180;
+  return { x: CX + r * Math.sin(a), y: CY - r * Math.cos(a) };
+}
+// Путь кольцевого сектора от угла a0 до a1 (по часовой, a1 > a0).
+// rInner = 0 — сектор-пирог от центра.
+function sectorPath(rInner, rOuter, a0, a1) {
+  const large = (a1 - a0) > 180 ? 1 : 0;
+  const f = n => Math.round(n * 100) / 100;
+  const p0o = polar(rOuter, a0), p1o = polar(rOuter, a1);
+  if (rInner <= 0) {
+    return `M ${f(CX)} ${f(CY)} L ${f(p0o.x)} ${f(p0o.y)} ` +
+      `A ${rOuter} ${rOuter} 0 ${large} 1 ${f(p1o.x)} ${f(p1o.y)} Z`;
+  }
+  const p0i = polar(rInner, a0), p1i = polar(rInner, a1);
+  return `M ${f(p0i.x)} ${f(p0i.y)} A ${rInner} ${rInner} 0 ${large} 1 ${f(p1i.x)} ${f(p1i.y)} ` +
+    `L ${f(p1o.x)} ${f(p1o.y)} A ${rOuter} ${rOuter} 0 ${large} 0 ${f(p0o.x)} ${f(p0o.y)} Z`;
+}
+// Контрастный цвет текста для заливки
+function textColorFor(hex) {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.substr(0, 2), 16), g = parseInt(h.substr(2, 2), 16), b = parseInt(h.substr(4, 2), 16);
+  return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? "#222" : "#fff";
+}
+
+// ---------- Состояние ----------
+let nextId = 1;
+function newId() { return "t" + (nextId++) + "_" + Date.now().toString(36); }
+
+const DEFAULT_LIBRARY = [
+  { name: "Сон", duration_min: 540, color: "#1f3864", emoji: "😴" },
+  { name: "Подъём", duration_min: 60, color: "#8a5fd0", emoji: "🌅" },
+  { name: "Умыться, почистить зубы", duration_min: 30, color: "#ffee00", emoji: "🪥" },
+  { name: "Завтрак", duration_min: 30, color: "#ff9e3d", emoji: "🍳" },
+  { name: "Дорога в школу", duration_min: 30, color: "#c8c8c8", emoji: "🎒" },
+  { name: "Школа", duration_min: 270, color: "#8fbc45", emoji: "🏫" },
+  { name: "Дорога домой", duration_min: 30, color: "#c8c8c8", emoji: "🚶" },
+  { name: "Обед", duration_min: 30, color: "#ff5f9e", emoji: "🍽️" },
+  { name: "Домашние задания", duration_min: 60, color: "#f26a1b", emoji: "📚" },
+  { name: "Секция / бассейн", duration_min: 90, color: "#9fd4e8", emoji: "🏊" },
+  { name: "Свободное время", duration_min: 90, color: "#1e6fb8", emoji: "🎮" },
+  { name: "Ужин", duration_min: 60, color: "#ff5f9e", emoji: "🍲" },
+  { name: "Чтение", duration_min: 30, color: "#a6e800", emoji: "📖" },
+  { name: "Подготовка ко сну", duration_min: 30, color: "#ffee00", emoji: "🛁" }
+];
+
+let state = { schedule: [], library: DEFAULT_LIBRARY.map(x => Object.assign({}, x)) };
+let conflictIds = [];
+
+// ---------- Геометрия задач ----------
+// Разбивает задачу на куски по уровням (через шов 04:00 и границу 16:00).
+// Возвращает [{ s0, s1, level, task }] в спиральных координатах [0,1440).
+function piecesOf(task) {
+  const startMin = toMin(task.start);
+  // страж: битая задача (нет времени или длительности) не должна
+  // ломать рендер всей спирали — просто не рисуем её
+  if (startMin === null || !Number.isFinite(task.duration_min) ||
+      !(task.duration_min > 0)) return [];
+  const s0 = spiralCoord(startMin);
+  const end = s0 + task.duration_min;
+  const pieces = [];
+  let cur = s0;
+  while (cur < end) {
+    const base = Math.floor(cur / DAY_MIN) * DAY_MIN;
+    const boundary = (cur % DAY_MIN) < HALF_MIN ? base + HALF_MIN : base + DAY_MIN;
+    const segEnd = Math.min(end, boundary);
+    const a = cur % DAY_MIN;
+    let b = segEnd % DAY_MIN;
+    if (b <= a) b = a < HALF_MIN ? HALF_MIN : DAY_MIN; // кусок дошёл до конца уровня
+    pieces.push({ s0: a, s1: b, level: levelOfS(a), task });
+    cur = segEnd;
+  }
+  return pieces;
+}
+// Куски на окружности [0,1440) для проверки пересечений
+function circlePieces(startMin, durMin) {
+  const s0 = spiralCoord(startMin);
+  const end = s0 + durMin;
+  const out = [];
+  let cur = s0;
+  while (cur < end) {
+    const wrap = Math.floor(cur / DAY_MIN) * DAY_MIN + DAY_MIN;
+    const segEnd = Math.min(end, wrap);
+    const a = cur % DAY_MIN, b = segEnd % DAY_MIN;
+    out.push({ a, b: b === 0 && segEnd > cur ? DAY_MIN : b });
+    cur = segEnd;
+  }
+  return out;
+}
+function intervalsOverlap(a1, b1, a2, b2) { return a1 < b2 && a2 < b1; }
+// Список задач, пересекающихся с интервалом [startMin, +durMin)
+function findConflicts(startMin, durMin, excludeId) {
+  const mine = circlePieces(startMin, durMin);
+  const bad = [];
+  for (const t of state.schedule) {
+    if (t.id === excludeId) continue;
+    const ts = toMin(t.start);
+    for (const p of circlePieces(ts, t.duration_min)) {
+      if (mine.some(m => intervalsOverlap(m.a, m.b, p.a, p.b))) { bad.push(t); break; }
+    }
+  }
+  return bad;
+}
+
+// ---------- Рендер SVG ----------
+const SVGNS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+
+function renderSchedule() {
+  if (typeof document === "undefined") return;
+  const svg = document.getElementById("spiral");
+  svg.innerHTML = "";
+
+  // Фон: незапланированное время (весь круг всегда заполнен).
+  // Белое кольцо между диском и внешним кольцом — зона меток внутреннего диска.
+  el("circle", { cx: CX, cy: CY, r: R_INNER, fill: FREE_COLOR, stroke: "#333", "stroke-width": 1.5 }, svg);
+  el("path", { d: sectorPath(R_INNER, R_BAND, 0, 360),
+    fill: "#fff", stroke: "#333", "stroke-width": 1, "stroke-opacity": 0.5 }, svg);
+  el("path", { d: sectorPath(R_BAND, R_OUTER, SEAM_ANGLE, SEAM_ANGLE + 360),
+    fill: FREE_COLOR, stroke: "#333", "stroke-width": 1.5 }, svg);
+
+  // Часовые линии-разделители на обоих уровнях (тонкие, как на эталоне)
+  for (let s = 0; s < DAY_MIN; s += 60) {
+    const a = angleOfS(s);
+    const inner = levelOfS(s) === "inner";
+    const p0 = polar(inner ? 0 : R_BAND, a), p1 = polar(inner ? R_INNER : R_OUTER, a);
+    el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+      "stroke-width": 1, "stroke-opacity": 0.35 }, svg);
+  }
+
+  // Сегменты задач (кусок через шов рисуется двумя смежными частями одного цвета).
+  // Битая задача не должна ломать весь рендер: пропускаем её и сообщаем.
+  for (const task of state.schedule) {
+    try {
+      for (const p of piecesOf(task)) {
+        const rIn = p.level === "inner" ? 0 : R_BAND;
+        const rOut = p.level === "inner" ? R_INNER : R_OUTER;
+        const a0 = SEAM_ANGLE + p.s0 * DEG_PER_MIN, a1 = SEAM_ANGLE + p.s1 * DEG_PER_MIN;
+        const path = el("path", {
+          d: sectorPath(rIn, rOut, a0, a1), fill: task.color,
+          stroke: "#333", "stroke-width": 1.5, "class": "seg" +
+            (conflictIds.includes(task.id) ? " conflict" : "")
+        }, svg);
+        path.dataset.taskId = task.id;
+        // всплывающая подсказка: полное название и время (важно для узких
+        // сегментов, где внутри только эмодзи)
+        const tip = el("title", {}, path);
+        tip.textContent = task.name + " — " + task.start + "–" +
+          toHHMM(toMin(task.start) + task.duration_min) + " (" + task.duration_min + " мин)";
+        path.addEventListener("click", () => openEditPanel(task.id));
+      }
+    } catch (err) {
+      console.error("renderSchedule: пропущена задача", task, err);
+      showMessage("Ошибка отображения задачи «" + (task && task.name || "?") + "»");
+    }
+  }
+
+  // Ступенька шва спирали на 04:00: видимая радиальная граница между
+  // внутренним диском и внешним кольцом (поверх сегментов).
+  {
+    const p0 = polar(R_INNER, SEAM_ANGLE), p1 = polar(R_OUTER, SEAM_ANGLE);
+    el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+      "stroke-width": 3 }, svg);
+  }
+
+  // Подписи — тоже под защитой: при любой ошибке спираль уже нарисована
+  try {
+    renderTaskLabels(svg);
+    renderTimeLabels(svg);
+  } catch (err) {
+    console.error("renderSchedule: ошибка подписей", err);
+    showMessage("Ошибка отображения подписей: " + err.message);
+  }
+}
+
+// Подписи задач: эмодзи + название, прямой текст вдоль хорды сегмента на
+// среднем радиусе уровня. Угол поворота = угол середины сегмента − 90°;
+// вверх ногами — переворачиваем.
+// Лестница автоподбора: эмодзи+текст → уменьшенный и уплотнённый текст →
+// только эмодзи (узкие сегменты ~15 мин и меньше) крупно по центру сегмента;
+// если не влезает даже эмодзи — выноска снаружи круга на линии-указателе.
+// Полное название и время — во всплывающей подсказке (title на сегменте).
+function renderTaskLabels(svg) {
+  const R_MID = { inner: R_INNER / 2, outer: (R_BAND + R_OUTER) / 2 };
+  // доступная длина текста вдоль уровня (с полями)
+  const MAX_LEN = { inner: R_INNER - 40, outer: R_OUTER - R_BAND - 16 };
+  const FONT_STEPS = { inner: [26, 18], outer: [24, 18] };
+
+  // по одной подписи на задачу на уровень — берём самый широкий кусок
+  const best = new Map(); // key task.id:level -> piece
+  for (const task of state.schedule) {
+    for (const p of piecesOf(task)) {
+      const key = task.id + ":" + p.level;
+      const cur = best.get(key);
+      if (!cur || (p.s1 - p.s0) > (cur.s1 - cur.s0)) best.set(key, p);
+    }
+  }
+
+  for (const p of best.values()) {
+    const task = p.task;
+    const sweepRad = (p.s1 - p.s0) * DEG_PER_MIN * Math.PI / 180;
+    const midA = SEAM_ANGLE + ((p.s0 + p.s1) / 2) * DEG_PER_MIN;
+    const rMid = R_MID[p.level];
+    const maxLen = MAX_LEN[p.level];
+    const label = (task.emoji || "⭐") + " " + task.name;
+
+    let placed = false;
+    const steps = FONT_STEPS[p.level];
+    for (let i = 0; i < steps.length && !placed; i++) {
+      const fs = steps[i];
+      const t = el("text", {
+        "text-anchor": "middle", "dominant-baseline": "middle",
+        "font-size": fs, "font-weight": 600, "pointer-events": "none"
+      }, svg);
+      t.textContent = label;
+      const natLen = t.getComputedTextLength();
+      // последний шаг лестницы — с уплотнением (сжатие по горизонтали)
+      const condense = i === steps.length - 1 && natLen > maxLen;
+      const effLen = condense ? maxLen : natLen;
+      // высота шрифта должна влезать в дуговую ширину сегмента;
+      // для диска проверяем у внутреннего конца текста, где клин уже всего
+      const rCheck = p.level === "inner" ? Math.max(rMid - effLen / 2, 1) : rMid;
+      const fits = effLen <= maxLen && fs <= rCheck * sweepRad * 0.8;
+      if (fits) {
+        if (condense) {
+          t.setAttribute("textLength", maxLen);
+          t.setAttribute("lengthAdjust", "spacingAndGlyphs");
+        }
+        const pos = polar(rMid, midA);
+        let rot = ((midA - 90) % 360 + 360) % 360;
+        if (rot > 90 && rot < 270) rot += 180; // текст не вверх ногами
+        t.setAttribute("x", pos.x);
+        t.setAttribute("y", pos.y);
+        t.setAttribute("fill", textColorFor(task.color));
+        t.setAttribute("transform", `rotate(${rot} ${pos.x} ${pos.y})`);
+        placed = true;
+      } else {
+        svg.removeChild(t);
+      }
+    }
+
+    if (!placed) {
+      const arcW = rMid * sweepRad;
+      if (arcW >= 20) {
+        // узкий сегмент: внутри только эмодзи, крупно и по центру;
+        // размер — по дуговой ширине и толщине уровня
+        const radial = p.level === "inner" ? rMid : R_OUTER - R_BAND;
+        const fs = Math.max(20, Math.min(arcW * 0.75, radial * 0.6, 72));
+        const pos = polar(rMid, midA);
+        const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+          "dominant-baseline": "central", "font-size": fs,
+          "pointer-events": "none" }, svg);
+        t.textContent = task.emoji || "⭐";
+      } else {
+        // совсем узкий сегмент: выноска снаружи круга — линия-указатель
+        // от края спирали к горизонтальному тексту «эмодзи + название»
+        const p0 = polar(R_OUTER, midA), p1 = polar(R_OUTER + 140, midA);
+        el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+          "stroke-width": 1, "stroke-opacity": 0.6, "pointer-events": "none" }, svg);
+        const pos = polar(R_OUTER + 150, midA);
+        const right = Math.cos(midA * Math.PI / 180) >= 0;
+        const t = el("text", { x: pos.x, y: pos.y,
+          "text-anchor": right ? "start" : "end",
+          "dominant-baseline": "middle", "font-size": 16, fill: "#222",
+          "class": "tmark", "pointer-events": "none" }, svg);
+        t.textContent = label;
+        if (t.getComputedTextLength() > 160) {
+          t.setAttribute("textLength", 160);
+          t.setAttribute("lengthAdjust", "spacingAndGlyphs");
+        }
+      }
+    }
+  }
+}
+
+// Часовые метки: круглые часы обоих уровней + времена границ задач.
+// Метки внутреннего диска (04:00–16:00) — в белом кольце между диском и
+// внешним кольцом, горизонтально, без линий-указателей.
+// Метки внешнего кольца — снаружи круга с линиями-указателями
+// (на одном луче они различаются на 12 ч).
+// Шрифт меток меньше шрифта подписей задач.
+function renderTimeLabels(svg) {
+  const R_BAND_MID = (R_INNER + R_BAND) / 2;
+  const R_TEXT_OUTER = R_OUTER + 116;
+  const R_LINE_OUTER = [R_OUTER + 70, R_OUTER + 100];
+  const innerTimes = new Set(), outerTimes = new Set();
+  for (let s = 0; s < DAY_MIN; s += 60) {
+    const t = (SEAM_MIN + s) % DAY_MIN;
+    (levelOfS(s) === "inner" ? innerTimes : outerTimes).add(t);
+  }
+  // границы задач — тоже подписываем (7:30, 21:30 и т.п.)
+  for (const task of state.schedule) {
+    for (const tm of [toMin(task.start), (toMin(task.start) + task.duration_min) % DAY_MIN]) {
+      (levelOfS(spiralCoord(tm)) === "inner" ? innerTimes : outerTimes).add(tm);
+    }
+  }
+  const drawLabel = (tm, isInner) => {
+    const a = angleOfS(spiralCoord(tm));
+    if (isInner) {
+      // метка в белом кольце: горизонтальный текст, без указателя
+      const pos = polar(R_BAND_MID, a);
+      const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+        "dominant-baseline": "middle", "font-size": 18, fill: "#222",
+        "class": "tmark", "pointer-events": "none" }, svg);
+      t.textContent = toHHMM(tm);
+      return;
+    }
+    // метка внешнего кольца: снаружи, с линией-указателем
+    const [r0, r1] = R_LINE_OUTER;
+    const p0 = polar(r0, a), p1 = polar(r1, a);
+    el("line", { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y, stroke: "#333",
+      "stroke-width": 1.2, "pointer-events": "none" }, svg);
+    const pos = polar(R_TEXT_OUTER, a);
+    const t = el("text", { x: pos.x, y: pos.y, "text-anchor": "middle",
+      "dominant-baseline": "middle", "font-size": 20, fill: "#222",
+      "class": "tmark", "pointer-events": "none" }, svg);
+    t.textContent = toHHMM(tm);
+  };
+  for (const tm of innerTimes) drawLabel(tm, true);
+  for (const tm of outerTimes) drawLabel(tm, false);
+}
+
+// ---------- Сообщения и подсветка конфликтов ----------
+let msgTimer = null;
+function showMessage(text) {
+  const m = document.getElementById("msg");
+  m.textContent = text;
+  m.style.display = "block";
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => { m.style.display = "none"; }, 5000);
+}
+function setConflicts(tasks) {
+  conflictIds = tasks.map(t => t.id);
+}
+function clearConflicts() { conflictIds = []; }
+
+// Эмодзи задачи расписания: из библиотеки по точному совпадению имени,
+// иначе звёздочка. (Поле emoji у schedule — внутреннее, в экспорт JSON
+// не входит.)
+function emojiForName(name) {
+  const found = state.library.find(x => x.name === name);
+  return found && found.emoji ? found.emoji : "⭐";
+}
+
+// ---------- Добавление задачи на спираль ----------
+function addTask(name, startMin, durationMin, color, emoji) {
+  const conflicts = findConflicts(startMin, durationMin, null);
+  if (conflicts.length) {
+    setConflicts(conflicts);
+    renderSchedule();
+    showMessage("Задача пересекается с: " +
+      conflicts.map(t => "«" + t.name + "» (" + t.start + ")").join(", "));
+    return false;
+  }
+  clearConflicts();
+  state.schedule.push({ id: newId(), name, start: toHHMM(startMin),
+    duration_min: durationMin, color, emoji: emoji || emojiForName(name) });
+  saveState();
+  renderSchedule();
+  return true;
+}
+
+// ---------- Палитры ----------
+function buildPalette(container, getColor, setColor) {
+  container.innerHTML = "";
+  for (const c of PALETTE) {
+    const d = document.createElement("div");
+    d.className = "pcolor" + (getColor() === c ? " sel" : "");
+    d.style.background = c;
+    d.addEventListener("click", () => { setColor(c); buildPalette(container, getColor, setColor); });
+    container.appendChild(d);
+  }
+}
+
+// ---------- Панель «Постоянные задачи» ----------
+let libFormColor = PALETTE[4];
+
+// Палитра эмодзи (24 шт.): гигиена, еда, транспорт, учёба, спорт, сон,
+// чтение, игры. Клик по кнопке записывает эмодзи в связанное поле ввода;
+// ручной ввод в поле тоже работает.
+const EMOJI_PALETTE = ["🪥", "🛁", "🚿", "🍳", "🍽️", "🍲", "🍎", "🚌",
+  "🚶", "🚲", "🎒", "🏫", "📚", "✏️", "🏊", "⚽", "🏃", "😴", "🌅", "🛏️",
+  "📖", "🎮", "🧩", "🎨"];
+function buildEmojiPalette(container, input) {
+  container.innerHTML = "";
+  for (const e of EMOJI_PALETTE) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "epick";
+    b.textContent = e;
+    b.addEventListener("click", () => { input.value = e; });
+    container.appendChild(b);
+  }
+}
+
+function renderLibrary() {
+  const list = document.getElementById("lib-list");
+  list.innerHTML = "";
+  state.library.forEach((item, idx) => {
+    const row = document.createElement("div");
+    row.className = "lib-item";
+    row.innerHTML =
+      `<span class="emoji">${item.emoji || "⭐"}</span>` +
+      `<span class="swatch" style="background:${item.color}"></span>` +
+      `<span class="nm"></span>` +
+      `<span class="dur">${item.duration_min} мин</span>`;
+    row.querySelector(".nm").textContent = item.name;
+    const btnEdit = document.createElement("button");
+    btnEdit.textContent = "✏️";
+    btnEdit.title = "Изменить";
+    btnEdit.addEventListener("click", ev => { ev.stopPropagation(); openLibEdit(idx); });
+    const btnDel = document.createElement("button");
+    btnDel.textContent = "🗑";
+    btnDel.title = "Удалить";
+    btnDel.addEventListener("click", ev => {
+      ev.stopPropagation();
+      state.library.splice(idx, 1);
+      saveState(); renderLibrary();
+    });
+    row.appendChild(btnEdit);
+    row.appendChild(btnDel);
+    attachDrag(row, idx);
+    list.appendChild(row);
+  });
+  buildPalette(document.getElementById("lib-palette"), () => libFormColor, c => { libFormColor = c; });
+}
+function resetLibForm() {
+  document.getElementById("lib-name").value = "";
+  document.getElementById("lib-duration").value = 30;
+  document.getElementById("lib-emoji").value = "⭐";
+}
+function submitLibForm() {
+  const name = document.getElementById("lib-name").value.trim();
+  const dur = Math.max(5, Math.min(720, parseInt(document.getElementById("lib-duration").value, 10) || 0));
+  const emoji = document.getElementById("lib-emoji").value.trim() || "⭐";
+  if (!name) { showMessage("Введите название задачи"); return; }
+  state.library.push({ name, duration_min: dur, color: libFormColor, emoji });
+  resetLibForm();
+  saveState(); renderLibrary();
+}
+
+// ---------- Модальное редактирование задачи библиотеки ----------
+// Открывается кнопкой ✏️ в списке: название, длительность по умолчанию,
+// цвет, эмодзи (палитра + ручной ввод), сохранение в state.library.
+let libEditIndex = -1;
+let libEditColor = PALETTE[0];
+function openLibEdit(idx) {
+  const item = state.library[idx];
+  if (!item) return;
+  libEditIndex = idx;
+  libEditColor = item.color;
+  document.getElementById("libedit-name").value = item.name;
+  document.getElementById("libedit-duration").value = item.duration_min;
+  document.getElementById("libedit-emoji").value = item.emoji || "⭐";
+  buildPalette(document.getElementById("libedit-palette"),
+    () => libEditColor, c => { libEditColor = c; });
+  document.getElementById("libedit-overlay").style.display = "flex";
+}
+function closeLibEdit() {
+  libEditIndex = -1;
+  document.getElementById("libedit-overlay").style.display = "none";
+}
+function saveLibEdit() {
+  const item = state.library[libEditIndex];
+  if (!item) { closeLibEdit(); return; }
+  const name = document.getElementById("libedit-name").value.trim();
+  const dur = Math.max(5, Math.min(720,
+    parseInt(document.getElementById("libedit-duration").value, 10) || 0));
+  const emoji = document.getElementById("libedit-emoji").value.trim() || "⭐";
+  if (!name) { showMessage("Введите название задачи"); return; }
+  state.library[libEditIndex] = { name, duration_min: dur, color: libEditColor, emoji };
+  saveState();
+  renderLibrary();
+  closeLibEdit();
+}
+
+// ---------- Drag-and-drop + touch (Pointer Events) ----------
+let dragState = null; // { libIndex, ghost, moved }
+function attachDrag(row, libIndex) {
+  row.addEventListener("pointerdown", ev => {
+    if (ev.target.closest("button")) return;
+    dragState = { libIndex, moved: false, startX: ev.clientX, startY: ev.clientY };
+    ev.preventDefault();
+  });
+}
+function svgPointFromClient(clientX, clientY) {
+  const svg = document.getElementById("spiral");
+  const m = svg.getScreenCTM();
+  if (!m) return null;
+  const pt = new DOMPoint(clientX, clientY).matrixTransform(m.inverse());
+  if (pt.x < -160 || pt.x > 1160 || pt.y < -160 || pt.y > 1160) return null;
+  return { x: pt.x, y: pt.y };
+}
+function onDragMove(ev) {
+  if (!dragState) return;
+  if (!dragState.moved) {
+    if (Math.hypot(ev.clientX - dragState.startX, ev.clientY - dragState.startY) < 8) return;
+    dragState.moved = true;
+    const item = state.library[dragState.libIndex];
+    const ghost = document.getElementById("drag-ghost");
+    ghost.textContent = (item.emoji ? item.emoji + " " : "") + item.name;
+    ghost.style.display = "block";
+  }
+  ev.preventDefault();
+  const ghost = document.getElementById("drag-ghost");
+  ghost.style.left = (ev.clientX + 14) + "px";
+  ghost.style.top = (ev.clientY + 14) + "px";
+}
+function onDragEnd(ev) {
+  if (!dragState) return;
+  const ds = dragState;
+  dragState = null;
+  document.getElementById("drag-ghost").style.display = "none";
+  if (!ds.moved) return;
+  const pt = svgPointFromClient(ev.clientX, ev.clientY);
+  if (!pt) return;
+  const item = state.library[ds.libIndex];
+  const { time } = pointToTime(pt.x, pt.y);
+  addTask(item.name, time, item.duration_min, item.color, item.emoji);
+}
+
+// ---------- Панель редактирования сегмента ----------
+// Время вводится двумя селектами: часы 0–23 и минуты с шагом 5.
+// Вместо длительности — поля «Начало» и «Окончание»; переход через полночь
+// допустим (окончание раньше начала = следующий день), внутри по-прежнему
+// start + duration_min.
+let editTaskId = null;
+let editColor = PALETTE[0];
+function fillTimeSelects() {
+  const pad2 = n => String(n).padStart(2, "0");
+  for (const [hId, mId] of [["edit-start-h", "edit-start-m"], ["edit-end-h", "edit-end-m"]]) {
+    const hSel = document.getElementById(hId), mSel = document.getElementById(mId);
+    hSel.innerHTML = "";
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement("option");
+      o.value = h; o.textContent = pad2(h);
+      hSel.appendChild(o);
+    }
+    mSel.innerHTML = "";
+    for (let m = 0; m < 60; m += 5) {
+      const o = document.createElement("option");
+      o.value = m; o.textContent = pad2(m);
+      mSel.appendChild(o);
+    }
+  }
+}
+function setTimeSelects(hId, mId, minutes) {
+  const m5 = Math.round(minutes / 5) * 5 % DAY_MIN; // округление к шагу 5 мин
+  document.getElementById(hId).value = Math.floor(m5 / 60);
+  document.getElementById(mId).value = m5 % 60;
+}
+function getTimeSelects(hId, mId) {
+  return parseInt(document.getElementById(hId).value, 10) * 60 +
+    parseInt(document.getElementById(mId).value, 10);
+}
+function openEditPanel(taskId) {
+  const task = state.schedule.find(t => t.id === taskId);
+  if (!task) return;
+  editTaskId = taskId;
+  editColor = task.color;
+  document.getElementById("edit-name").value = task.name;
+  const startMin = toMin(task.start);
+  const endMin = (startMin + task.duration_min) % DAY_MIN;
+  setTimeSelects("edit-start-h", "edit-start-m", startMin);
+  setTimeSelects("edit-end-h", "edit-end-m", endMin);
+  buildPalette(document.getElementById("edit-palette"), () => editColor, c => { editColor = c; });
+  document.getElementById("edit-overlay").style.display = "flex";
+}
+function closeEditPanel() {
+  editTaskId = null;
+  document.getElementById("edit-overlay").style.display = "none";
+}
+function saveEditPanel() {
+  const task = state.schedule.find(t => t.id === editTaskId);
+  if (!task) { closeEditPanel(); return; }
+  const name = document.getElementById("edit-name").value.trim();
+  const startMin = getTimeSelects("edit-start-h", "edit-start-m");
+  const endMin = getTimeSelects("edit-end-h", "edit-end-m");
+  const dur = (endMin - startMin + DAY_MIN) % DAY_MIN;
+  if (!name) { showMessage("Введите название задачи"); return; }
+  if (dur === 0) { showMessage("Окончание должно быть позже начала"); return; }
+  if (dur < 5 || dur > 720) { showMessage("Задача должна длиться от 5 минут до 12 часов"); return; }
+  const conflicts = findConflicts(startMin, dur, task.id);
+  if (conflicts.length) {
+    setConflicts(conflicts.concat([task]));
+    renderSchedule();
+    showMessage("Задача пересекается с: " +
+      conflicts.map(t => "«" + t.name + "» (" + t.start + ")").join(", "));
+    return;
+  }
+  clearConflicts();
+  Object.assign(task, { name, start: toHHMM(startMin), duration_min: dur, color: editColor });
+  saveState();
+  renderSchedule();
+  closeEditPanel();
+}
+function deleteEditTask() {
+  state.schedule = state.schedule.filter(t => t.id !== editTaskId);
+  clearConflicts();
+  saveState();
+  renderSchedule();
+  closeEditPanel();
+}
+
+// ---------- localStorage, экспорт/импорт ----------
+const LS_KEY = "dayPlannerState.v1";
+// Валидация задач расписания при загрузке/импорте: время начала в формате
+// ЧЧ:ММ, длительность — конечное число (кламп 5..1440 мин). Некорректные
+// задачи пропускаются, чтобы битые данные не ломали рендер спирали.
+function sanitizeSchedule(list) {
+  const tasks = [];
+  let skipped = 0;
+  for (const t of list) {
+    const startMin = t ? toMin(t.start) : null;
+    const dur = t ? Number(t.duration_min) : NaN;
+    if (startMin === null || !Number.isFinite(dur) || dur <= 0) { skipped++; continue; }
+    tasks.push({ id: newId(), name: String(t.name || "Задача"),
+      start: toHHMM(startMin),
+      duration_min: Math.min(DAY_MIN, Math.max(5, Math.round(dur))),
+      color: t.color || PALETTE[0], emoji: t.emoji || "" });
+  }
+  return { tasks, skipped };
+}
+function saveState() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      schedule: state.schedule.map(({ name, start, duration_min, color, emoji }) =>
+        ({ name, start, duration_min, color, emoji })),
+      library: state.library
+    }));
+  } catch (e) { /* переполнение/приватный режим — просто не сохраняем */ }
+}
+function loadState() {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.schedule)) {
+      state.schedule = sanitizeSchedule(data.schedule).tasks;
+    }
+    if (Array.isArray(data.library) && data.library.length) {
+      state.library = data.library
+        .filter(t => t && t.name)
+        .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
+          color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
+    }
+    // эмодзи для старых сохранений без этого поля
+    state.schedule.forEach(t => { if (!t.emoji) t.emoji = emojiForName(t.name); });
+  } catch (e) { /* повреждённые данные — начинаем с чистого листа */ }
+}
+function exportJSON() {
+  const data = {
+    schedule: state.schedule.map(({ name, start, duration_min, color }) =>
+      ({ name, start, duration_min, color })),
+    library: state.library
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "planner.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function importJSON(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!Array.isArray(data.schedule)) throw new Error("нет поля schedule");
+      const { tasks, skipped } = sanitizeSchedule(data.schedule);
+      if (!tasks.length) throw new Error("нет ни одной корректной задачи");
+      state.schedule = tasks;
+      if (Array.isArray(data.library) && data.library.length) {
+        state.library = data.library
+          .filter(t => t && t.name)
+          .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
+            color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
+      }
+      // в файле импорта эмодзи у schedule нет — берём из библиотеки по имени
+      state.schedule.forEach(t => { t.emoji = emojiForName(t.name); });
+      clearConflicts();
+      saveState();
+      showMessage(skipped
+        ? "Импортировано " + tasks.length + " задач, пропущено некорректных: " + skipped
+        : "Импортировано задач: " + tasks.length);
+    } catch (e) {
+      showMessage("Не удалось импортировать файл: " + e.message);
+    }
+    // спираль и библиотека перерисовываются всегда — даже при битом файле
+    // интерфейс остаётся в рабочем состоянии
+    renderSchedule();
+    renderLibrary();
+  };
+  reader.readAsText(file);
+}
+
+// ---------- Эталонный день (расписание и цвета из planner_clock.txt) ----------
+const REFERENCE_DAY = [
+  { name: "Сон", start: "21:30", duration_min: 540, color: "#1f3864", emoji: "😴" },
+  { name: "Подъём, утро", start: "06:30", duration_min: 60, color: "#8a5fd0", emoji: "🌅" },
+  { name: "Умыться, собраться в школу", start: "07:30", duration_min: 30, color: "#ffee00", emoji: "🪥" },
+  { name: "Дорога в школу", start: "08:00", duration_min: 30, color: "#c8c8c8", emoji: "🎒" },
+  { name: "Школа", start: "08:30", duration_min: 270, color: "#8fbc45", emoji: "🏫" },
+  { name: "Дорога домой", start: "13:00", duration_min: 30, color: "#c8c8c8", emoji: "🚶" },
+  { name: "Обед", start: "13:30", duration_min: 30, color: "#ff5f9e", emoji: "🍽️" },
+  { name: "Сборы и дорога до секции", start: "14:00", duration_min: 30, color: "#c8c8c8", emoji: "🎒" },
+  { name: "Бассейн", start: "14:30", duration_min: 90, color: "#9fd4e8", emoji: "🏊" },
+  { name: "Дорога домой", start: "16:00", duration_min: 30, color: "#c8c8c8", emoji: "🚶" },
+  { name: "Отдых / свободное время", start: "16:30", duration_min: 60, color: "#f26a1b", emoji: "🎮" },
+  { name: "Ужин", start: "17:30", duration_min: 60, color: "#ff5f9e", emoji: "🍲" },
+  { name: "Чтение", start: "18:30", duration_min: 30, color: "#a6e800", emoji: "📖" },
+  { name: "Свободное время", start: "19:00", duration_min: 90, color: "#1e6fb8", emoji: "🎮" },
+  { name: "Помыться, почистить зубы", start: "20:30", duration_min: 30, color: "#ffee00", emoji: "🛁" },
+  { name: "Чтение", start: "21:00", duration_min: 30, color: "#a6e800", emoji: "📖" }
+];
+function loadReferenceDay() {
+  state.schedule = REFERENCE_DAY.map(t => Object.assign({ id: newId() }, t));
+  clearConflicts();
+  saveState();
+  if (typeof document !== "undefined") renderSchedule();
+  runSelfTest();
+}
+
+// ---------- Контрольный тест (вывод в консоль) ----------
+function runSelfTest() {
+  const results = [];
+  const check = (label, ok, detail) => {
+    results.push(ok);
+    console.log((ok ? "✅" : "❌") + " " + label + (detail ? " — " + detail : ""));
+  };
+
+  // а) контрольные углы
+  const a0400in = timeToAngle(240), a0400out = timeToAngle(240); // 04:00 — шов
+  check("04:00 = 120° (шов, оба уровня)", a0400in.angle === 120 && a0400out.angle === 120,
+    "получено " + a0400in.angle + "°");
+  check("06:00 = 180° (внутренний диск)",
+    timeToAngle(360).angle === 180 && timeToAngle(360).level === "inner",
+    "получено " + timeToAngle(360).angle + "°, " + timeToAngle(360).level);
+  check("12:00 = 0° (внутренний диск)",
+    timeToAngle(720).angle === 0 && timeToAngle(720).level === "inner",
+    "получено " + timeToAngle(720).angle + "°, " + timeToAngle(720).level);
+  check("16:00 = 120° (шов)",
+    timeToAngle(960).angle === 120 && timeToAngle(960).level === "outer",
+    "получено " + timeToAngle(960).angle + "°, " + timeToAngle(960).level);
+  check("00:00 = 0° (внешнее кольцо)",
+    timeToAngle(0).angle === 0 && timeToAngle(0).level === "outer",
+    "получено " + timeToAngle(0).angle + "°, " + timeToAngle(0).level);
+  check("21:30 = 285° (внешнее кольцо)",
+    timeToAngle(1290).angle === 285 && timeToAngle(1290).level === "outer",
+    "получено " + timeToAngle(1290).angle + "°, " + timeToAngle(1290).level);
+
+  // б) сегменты не пересекаются
+  let overlap = false;
+  for (let i = 0; i < state.schedule.length && !overlap; i++) {
+    for (let j = i + 1; j < state.schedule.length; j++) {
+      const a = state.schedule[i], b = state.schedule[j];
+      const pa = circlePieces(toMin(a.start), a.duration_min);
+      const pb = circlePieces(toMin(b.start), b.duration_min);
+      if (pa.some(x => pb.some(y => intervalsOverlap(x.a, x.b, y.a, y.b)))) {
+        overlap = true;
+        check("Сегменты не пересекаются", false, a.name + " × " + b.name);
+        break;
+      }
+    }
+  }
+  if (!overlap) check("Сегменты не пересекаются", true, state.schedule.length + " задач");
+
+  // в) сумма длительностей = 1440
+  const sum = state.schedule.reduce((s, t) => s + t.duration_min, 0);
+  check("Сумма длительностей = 1440 мин", sum === 1440, "получено " + sum);
+
+  // г) сон 21:30–06:30 — два смежных куска через шов 04:00
+  const sleep = state.schedule.find(t => t.name === "Сон" && t.start === "21:30");
+  if (!sleep) {
+    check("Сон 21:30–06:30 найден", false);
+  } else {
+    const pieces = piecesOf(sleep);
+    const ring = pieces.find(p => p.level === "outer");
+    const disk = pieces.find(p => p.level === "inner");
+    check("Сон рисуется двумя кусками одного цвета",
+      pieces.length === 2 && !!ring && !!disk,
+      "кусков: " + pieces.length);
+    if (ring && disk) {
+      // кольцо: 21:30 → 04:00 (спиральные 1050 → 1440), диск: 04:00 → 06:30 (0 → 150)
+      const ringOk = ring.s0 === spiralCoord(1290) && ring.s1 === DAY_MIN;
+      const diskOk = disk.s0 === 0 && disk.s1 === spiralCoord(390);
+      check("Кусок на кольце 21:30–04:00 и на диске 04:00–06:30, смежны в шве",
+        ringOk && diskOk,
+        "кольцо " + ring.s0 + "–" + ring.s1 + ", диск " + disk.s0 + "–" + disk.s1);
+    }
+  }
+  const passed = results.filter(Boolean).length;
+  console.log("Контрольный тест: " + passed + "/" + results.length + " проверок пройдено");
+  return results.every(Boolean);
+}
+
+// ---------- Инициализация UI ----------
+function initUI() {
+  loadState();
+  fillTimeSelects();
+  renderSchedule();
+  renderLibrary();
+
+  document.getElementById("btn-reference").addEventListener("click", loadReferenceDay);
+  document.getElementById("btn-export").addEventListener("click", exportJSON);
+  document.getElementById("btn-import").addEventListener("click", () =>
+    document.getElementById("import-file").click());
+  document.getElementById("import-file").addEventListener("change", ev => {
+    if (ev.target.files[0]) importJSON(ev.target.files[0]);
+    ev.target.value = "";
+  });
+
+  document.getElementById("lib-add").addEventListener("click", submitLibForm);
+  buildEmojiPalette(document.getElementById("lib-emoji-palette"),
+    document.getElementById("lib-emoji"));
+  buildEmojiPalette(document.getElementById("libedit-emoji-palette"),
+    document.getElementById("libedit-emoji"));
+
+  document.getElementById("libedit-save").addEventListener("click", saveLibEdit);
+  document.getElementById("libedit-cancel").addEventListener("click", closeLibEdit);
+  document.getElementById("libedit-overlay").addEventListener("click", ev => {
+    if (ev.target.id === "libedit-overlay") closeLibEdit();
+  });
+
+  document.getElementById("edit-save").addEventListener("click", saveEditPanel);
+  document.getElementById("edit-delete").addEventListener("click", deleteEditTask);
+  document.getElementById("edit-close").addEventListener("click", closeEditPanel);
+  document.getElementById("edit-overlay").addEventListener("click", ev => {
+    if (ev.target.id === "edit-overlay") closeEditPanel();
+  });
+
+  document.addEventListener("pointermove", onDragMove, { passive: false });
+  document.addEventListener("pointerup", onDragEnd);
+  document.addEventListener("pointercancel", onDragEnd);
+
+  // Открытие с #selftest загружает эталонный день и запускает контрольный тест
+  if (location.hash === "#selftest") loadReferenceDay();
+}
+if (typeof document !== "undefined") initUI();
+</script>
+</body>
+</html>
