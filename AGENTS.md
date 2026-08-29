@@ -11,7 +11,7 @@ Guidance for AI coding agents working in this repository.
 The repository contains:
 
 - `README.md` — a two-line project description.
-- `planner.html` — the entire application: a single self-contained HTML file (HTML+CSS+JS, no build step, no frameworks, no dependencies). Interface language: Russian.
+- `planner.html` — the entire application: a single self-contained HTML file (HTML+CSS+JS, no build step, no frameworks, no dependencies). Interface language: Russian. Schedules are per weekday (Пн–Вс switcher above the spiral); the task library is shared across all days.
 - `Planner_prompt_p.1_core.txt` — the original spec the app was built to.
 - `planner_clock.txt` — reference day schedule (task times and colors).
 - `Clock.png` — visual reference for the spiral layout, colors, and label style.
@@ -20,25 +20,26 @@ The repository contains:
 
 No build step. Open `planner.html` directly in a browser.
 
-Self-test: open `planner.html#selftest` — this loads the reference day and runs the control test (angles, overlaps, 1440-minute coverage, seam-split sleep segment), printing results to the browser console. Headless check (Chrome):
+Self-test: open `planner.html#selftest` — this loads the reference day into the active day and runs the control test (angles, overlaps, 1440-minute coverage, seam-split sleep segment, week state, day-export format, day switching), printing results to the browser console. Headless check (Chrome):
 
 ```
 chrome --headless=new --enable-logging=stderr --v=0 --virtual-time-budget=3000 \
   --dump-dom "file:///.../planner.html#selftest" 2>&1 | grep CONSOLE
 ```
 
-All 10 checks must print ✅.
+All 21 checks must print ✅.
 
 ## Code organization
 
 Everything lives in `planner.html`, in logical sections (searchable by comment banners):
 
 - Geometry constants and time/angle utilities (`spiralCoord`, `timeToAngle`, `pointToTime`, `sectorPath`). Key rule: seam at 04:00 = 120° clockwise from top, 1 hour = 30°; inner disk = 04:00–16:00, outer ring = 16:00–04:00. Tasks crossing a level boundary are split into same-colored pieces by `piecesOf`. Radii: `R_INNER = 300` (inner disk), `R_BAND = 360`, `R_OUTER = 470`; the ring R_INNER..R_BAND is a white band between the disk and the outer task ring. `pointToTime` maps a drop onto the white band to the nearest level (threshold at (R_INNER+R_BAND)/2). `piecesOf` returns [] for invalid tasks (bad start/duration), so broken data cannot break the render.
-- State: `state = { schedule, library }`, persisted to `localStorage` (key `dayPlannerState.v1`). Both `loadState` and `importJSON` validate tasks via `sanitizeSchedule` (start must parse as HH:MM, duration must be a finite number, clamped to 5..1440 min); invalid tasks are skipped and the import message reports the counts ("Импортировано N задач, пропущено некорректных: M").
+- State: `state = { days, activeDay, library }` — `days` is 7 schedules (Mon–Sun), `state.schedule` is always a reference to `state.days[state.activeDay]` (all rendering/editing logic works through it; never reassign it without updating `state.days` — use `splice`/`push` or set both). Persisted to `localStorage` (key `dayPlannerState.v2`); on first run the old v1 key (`dayPlannerState.v1`) is migrated by copying the filled day into all seven. Both `loadState` and `importJSON` validate tasks via `sanitizeSchedule` (start must parse as HH:MM, duration must be a finite number, clamped to 5..1440 min); invalid tasks are skipped and the import message reports the counts ("Импортировано N задач, пропущено некорректных: M").
+- Weekday UI: `renderDayTabs()` (buttons Пн–Вс above the spiral, `setActiveDay(i)` switches), copy dialog (`#copy-overlay`, `openCopyDialog`/`applyCopyDay`) deep-copies the current day with new ids into the selected days.
 - SVG rendering (`renderSchedule`, `renderTaskLabels`, `renderTimeLabels`). The seam at 04:00 is drawn as a visible radial step (R_INNER→R_OUTER) on top of the segments. Rendering is failure-safe: the background (disk + white band + outer ring) is drawn first, each task segment renders inside try/catch, and label rendering is wrapped in try/catch too — the spiral stays drawn even if some task or label fails, and the user gets a message. Task labels: inner-level (disk) labels are straight text "emoji + name" rotated by (mid-angle − 90°), flipped if upside down; outer-level (ring) labels follow the segment arc via `<textPath>` on an invisible arc in `<defs>` (radius (R_BAND+R_OUTER)/2, id `label-arc-outer-N`, inset ~1° from both ends; large-arc-flag is computed — the «Сон» piece spans 195° > 180°; the arc direction handles flipping — sweep=1 when the segment midpoint is in the top half of the circle (midAngle mod 360 outside 90–270°), endpoints swapped + sweep=0 in the bottom half, no rotate). Font auto-fit ladder: inner — default → smaller + condensed (`textLength`); outer — 24 → 18 → 13 by arc-length heuristic (`label.length * fs * 0.6 < arc length`, textPath does not support textLength); then shared fallbacks for both levels: emoji only (narrow segments, ~15 min or less) → leader-line callout outside the circle (when even the emoji does not fit, arc width < ~20 px: a pointer line from the outer edge and horizontal "emoji + name" text). Time labels (hour marks + task boundaries): inner-level times (04:00–16:00) sit INSIDE the white band at radius (R_INNER+R_BAND)/2 as horizontal text without leader lines; outer-level times sit strictly OUTSIDE the circle at R_OUTER+116 with leader lines from R_OUTER+70. Their font is smaller than task labels, with a white halo (`paint-order: stroke`).
-- Schedule tasks carry an internal `emoji` field (from the library by name, fallback "⭐"); it is persisted to `localStorage` but NOT included in export JSON.
+- Schedule tasks carry an internal `emoji` field (from the library by name, fallback "⭐"); it is persisted to `localStorage`, NOT included in the single-day export JSON, but kept in the full week backup.
 - Library panel UI, pointer-based drag-and-drop (mouse + touch), segment edit panel. The segment edit panel has "Начало" and "Окончание" fields (not duration): each is a pair of `<select>`s — hours 0–23 and minutes in steps of 5 (`fillTimeSelects` fills them in `initUI`); crossing midnight is allowed (end earlier than start = next day), internally the task stays start + duration_min. Library items are edited in a modal (`#libedit-overlay`, opened by the ✏️ button) with name, default duration, color palette, and emoji (palette of 24 + manual input); the creation form (`#lib-form`) has the same emoji palette (`EMOJI_PALETTE`, `buildEmojiPalette`).
-- Import/export JSON — the format is documented by a comment at the top of the script; an external reminder agent will read this file, so do not change the structure.
+- Import/export JSON — TWO export buttons. "Экспорт дня" (`buildDayExport`, file `planner.json`): the legacy single-day format `{schedule, library}` without `emoji` on tasks — an external reminder agent reads this file, so do not change the structure. "Экспорт всех дней" (`buildWeekExport`, file `planner-week.json`): full week backup `{version: 2, days: [7 schedules], library}` with `emoji` kept. One import button: `importJSON` sniffs the format by the presence of a `days` array — week backup replaces all days, legacy single-day file imports into the active day. Both formats are documented by a comment at the top of the script.
 - Reference day (`REFERENCE_DAY`, from `planner_clock.txt`) and `runSelfTest()`.
 
 ## Code style guidelines

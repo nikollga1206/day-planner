@@ -26,7 +26,11 @@
   button:hover { background: #f0f0f0; }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   main { display: flex; flex-wrap: wrap; align-items: flex-start; }
-  #spiral-wrap { flex: 1 1 480px; min-width: 320px; padding: 8px; display: flex; justify-content: center; }
+  #spiral-wrap { flex: 1 1 480px; min-width: 320px; padding: 8px; display: flex;
+    flex-direction: column; align-items: center; }
+  #day-tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 6px; }
+  #day-tabs button { padding: 8px 12px; font-size: 16px; }
+  #day-tabs button.sel { background: var(--accent); border-color: var(--accent); color: #fff; }
   #spiral { width: min(100%, calc(100vh - 150px)); height: auto; display: block; touch-action: none; }
   aside {
     flex: 0 0 340px; max-width: 100%; padding: 12px; border-left: 2px solid var(--line);
@@ -61,15 +65,21 @@
     background: #e84c3d; color: #fff; font-size: 17px; padding: 12px 20px;
     border-radius: 10px; z-index: 30; max-width: 90%; box-shadow: 0 2px 10px rgba(0,0,0,.3);
   }
-  #edit-overlay, #libedit-overlay {
+  #edit-overlay, #libedit-overlay, #copy-overlay {
     display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20;
     align-items: center; justify-content: center;
   }
-  #edit-panel, #libedit-panel {
+  #edit-panel, #libedit-panel, #copy-panel {
     background: #fff; border: 2px solid var(--line); border-radius: 14px;
     padding: 16px; width: min(420px, 92vw); max-height: 90vh; overflow: auto;
   }
-  #edit-panel h3, #libedit-panel h3 { margin: 0 0 8px; font-size: 19px; }
+  #edit-panel h3, #libedit-panel h3, #copy-panel h3 { margin: 0 0 8px; font-size: 19px; }
+  #copy-days label {
+    display: flex; align-items: center; gap: 8px; min-height: 44px;
+    font-size: 17px; cursor: pointer;
+  }
+  #copy-days input { width: 22px; height: 22px; }
+  #copy-panel .btns { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   #edit-panel label, #libedit-panel label { display: block; font-size: 14px; margin: 8px 0 2px; }
   .palette { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
   .palette .pcolor {
@@ -97,13 +107,16 @@
 <header>
   <h1>🕐 Спираль суток</h1>
   <button id="btn-reference" class="primary">Загрузить эталонный день</button>
-  <button id="btn-export">Экспорт JSON</button>
+  <button id="btn-copy-day">Скопировать расписание на…</button>
+  <button id="btn-export-day">Экспорт дня</button>
+  <button id="btn-export-week">Экспорт всех дней</button>
   <button id="btn-import">Импорт JSON</button>
   <input type="file" id="import-file" accept="application/json,.json" style="display:none">
 </header>
 <div id="msg"></div>
 <main>
   <div id="spiral-wrap">
+    <div id="day-tabs" role="tablist" aria-label="Дни недели"></div>
     <svg id="spiral" viewBox="-160 -160 1320 1320" role="img" aria-label="Спираль суток"></svg>
   </div>
   <aside>
@@ -187,6 +200,17 @@
     </div>
   </div>
 </div>
+<div id="copy-overlay">
+  <div id="copy-panel">
+    <h3>Скопировать расписание на…</h3>
+    <p class="hint" id="copy-from"></p>
+    <div id="copy-days"></div>
+    <div class="btns">
+      <button id="copy-apply" class="primary">Копировать</button>
+      <button id="copy-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
 <div id="drag-ghost"></div>
 <script>
 "use strict";
@@ -216,6 +240,18 @@
  *       "color": "#1f3864",            // цвет, HEX
  *       "emoji": "😴" }                // значок
  *   ]
+ * }
+ *
+ * Формат файла «Экспорт всех дней» (полная резервная копия недели;
+ * внешний агент его НЕ читает — только этот планировщик):
+ * {
+ *   "version": 2,                        // версия формата недели
+ *   "days": [                            // ровно 7 расписаний: Пн..Вс
+ *     [ { "name": "Сон", "start": "21:30", "duration_min": 540,
+ *         "color": "#1f3864", "emoji": "😴" }, ... ],   // Пн
+ *     [ ... ], ...                       // Вт..Вс
+ *   ],
+ *   "library": [ ... ]                   // общая библиотека (как выше)
  * }
  * ============================================================ */
 
@@ -322,8 +358,37 @@ const DEFAULT_LIBRARY = [
   { name: "Подготовка ко сну", duration_min: 30, color: "#ffee00", emoji: "🛁" }
 ];
 
-let state = { schedule: [], library: DEFAULT_LIBRARY.map(x => Object.assign({}, x)) };
+let state = { days: [[], [], [], [], [], [], []], activeDay: 0,
+  library: DEFAULT_LIBRARY.map(x => Object.assign({}, x)) };
+// state.schedule — всегда ссылка на расписание активного дня:
+// вся остальная логика (рендер, конфликты, редактирование) работает с ней
+state.schedule = state.days[0];
 let conflictIds = [];
+
+// ---------- Дни недели ----------
+const DAY_NAMES = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+function setActiveDay(i) {
+  if (i < 0 || i > 6 || i === state.activeDay) return;
+  state.activeDay = i;
+  state.schedule = state.days[i];
+  clearConflicts();
+  saveState();
+  renderSchedule();
+  renderDayTabs();
+}
+// Переключатель дней над спиралью
+function renderDayTabs() {
+  const tabs = document.getElementById("day-tabs");
+  tabs.innerHTML = "";
+  DAY_NAMES.forEach((nm, i) => {
+    const b = document.createElement("button");
+    b.textContent = nm;
+    b.className = i === state.activeDay ? "sel" : "";
+    b.setAttribute("role", "tab");
+    b.addEventListener("click", () => setActiveDay(i));
+    tabs.appendChild(b);
+  });
+}
 
 // ---------- Геометрия задач ----------
 // Разбивает задачу на куски по уровням (через шов 04:00 и границу 16:00).
@@ -933,15 +998,55 @@ function saveEditPanel() {
   closeEditPanel();
 }
 function deleteEditTask() {
-  state.schedule = state.schedule.filter(t => t.id !== editTaskId);
+  // удаляем на месте (splice), чтобы state.schedule осталась ссылкой
+  // на массив активного дня в state.days
+  const i = state.schedule.findIndex(t => t.id === editTaskId);
+  if (i >= 0) state.schedule.splice(i, 1);
   clearConflicts();
   saveState();
   renderSchedule();
   closeEditPanel();
 }
 
+// ---------- Копирование расписания на другие дни ----------
+function openCopyDialog() {
+  document.getElementById("copy-from").textContent =
+    "Текущий день: " + DAY_NAMES[state.activeDay] + " (" + state.schedule.length +
+    " задач). Выберите, на какие дни скопировать:";
+  const box = document.getElementById("copy-days");
+  box.innerHTML = "";
+  DAY_NAMES.forEach((nm, i) => {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = i;
+    cb.disabled = i === state.activeDay;
+    label.appendChild(cb);
+    label.appendChild(document.createTextNode(nm + (i === state.activeDay ? " (текущий)" : "")));
+    box.appendChild(label);
+  });
+  document.getElementById("copy-overlay").style.display = "flex";
+}
+function closeCopyDialog() {
+  document.getElementById("copy-overlay").style.display = "none";
+}
+function applyCopyDay() {
+  const targets = [];
+  document.querySelectorAll("#copy-days input:checked").forEach(cb => targets.push(+cb.value));
+  if (!targets.length) { showMessage("Выберите хотя бы один день"); return; }
+  for (const i of targets) {
+    // глубокая копия с новыми id — дни дальше редактируются независимо
+    state.days[i] = state.schedule.map(t => Object.assign({}, t, { id: newId() }));
+  }
+  saveState();
+  closeCopyDialog();
+  showMessage("Расписание «" + DAY_NAMES[state.activeDay] + "» скопировано на: " +
+    targets.map(i => DAY_NAMES[i]).join(", "));
+}
+
 // ---------- localStorage, экспорт/импорт ----------
-const LS_KEY = "dayPlannerState.v1";
+const LS_KEY = "dayPlannerState.v2";      // неделя: 7 расписаний + библиотека
+const LS_KEY_V1 = "dayPlannerState.v1";   // старый однодневный формат (только миграция)
 // Валидация задач расписания при загрузке/импорте: время начала в формате
 // ЧЧ:ММ, длительность — конечное число (кламп 5..1440 мин). Некорректные
 // задачи пропускаются, чтобы битые данные не ломали рендер спирали.
@@ -959,12 +1064,19 @@ function sanitizeSchedule(list) {
   }
   return { tasks, skipped };
 }
+function sanitizeLibrary(list) {
+  return list
+    .filter(t => t && t.name)
+    .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
+      color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
+}
 function saveState() {
   if (typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(LS_KEY, JSON.stringify({
-      schedule: state.schedule.map(({ name, start, duration_min, color, emoji }) =>
-        ({ name, start, duration_min, color, emoji })),
+      days: state.days.map(day => day.map(({ name, start, duration_min, color, emoji }) =>
+        ({ name, start, duration_min, color, emoji }))),
+      activeDay: state.activeDay,
       library: state.library
     }));
   } catch (e) { /* переполнение/приватный режим — просто не сохраняем */ }
@@ -972,57 +1084,115 @@ function saveState() {
 function loadState() {
   if (typeof localStorage === "undefined") return;
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    let raw = localStorage.getItem(LS_KEY);
+    let migrated = false;
+    if (!raw) {
+      // миграция со старого однодневного сохранения: заполненный день
+      // копируем во все семь как стартовую точку
+      raw = localStorage.getItem(LS_KEY_V1);
+      migrated = !!raw;
+    }
     if (!raw) return;
     const data = JSON.parse(raw);
-    if (Array.isArray(data.schedule)) {
-      state.schedule = sanitizeSchedule(data.schedule).tasks;
+    if (Array.isArray(data.days)) {
+      for (let i = 0; i < 7; i++) {
+        state.days[i] = Array.isArray(data.days[i])
+          ? sanitizeSchedule(data.days[i]).tasks : [];
+      }
+    } else if (Array.isArray(data.schedule)) {
+      // старый формат v1: одно расписание — дублируем на всю неделю
+      const base = sanitizeSchedule(data.schedule).tasks;
+      for (let i = 0; i < 7; i++) {
+        state.days[i] = base.map(t => Object.assign({}, t, { id: newId() }));
+      }
     }
+    if (Number.isInteger(data.activeDay) && data.activeDay >= 0 && data.activeDay < 7) {
+      state.activeDay = data.activeDay;
+    }
+    state.schedule = state.days[state.activeDay];
     if (Array.isArray(data.library) && data.library.length) {
-      state.library = data.library
-        .filter(t => t && t.name)
-        .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
-          color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
+      state.library = sanitizeLibrary(data.library);
     }
     // эмодзи для старых сохранений без этого поля
-    state.schedule.forEach(t => { if (!t.emoji) t.emoji = emojiForName(t.name); });
+    state.days.forEach(day => day.forEach(t => { if (!t.emoji) t.emoji = emojiForName(t.name); }));
+    if (migrated) saveState();
   } catch (e) { /* повреждённые данные — начинаем с чистого листа */ }
 }
-function exportJSON() {
-  const data = {
+// Объект экспорта одного дня — ПРЕЖНИЙ формат {schedule, library},
+// без emoji у задач (его читает внешний агент-напоминалка, не менять!)
+function buildDayExport() {
+  return {
     schedule: state.schedule.map(({ name, start, duration_min, color }) =>
       ({ name, start, duration_min, color })),
     library: state.library
   };
+}
+function downloadJSON(data, filename) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "planner.json";
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+function exportDayJSON() {
+  downloadJSON(buildDayExport(), "planner.json");
+}
+// Полная резервная копия недели (формат описан в шапке скрипта)
+function buildWeekExport() {
+  return {
+    version: 2,
+    days: state.days.map(day => day.map(({ name, start, duration_min, color, emoji }) =>
+      ({ name, start, duration_min, color, emoji }))),
+    library: state.library
+  };
+}
+function exportWeekJSON() {
+  downloadJSON(buildWeekExport(), "planner-week.json");
 }
 function importJSON(file) {
   const reader = new FileReader();
   reader.onload = () => {
     try {
       const data = JSON.parse(reader.result);
-      if (!Array.isArray(data.schedule)) throw new Error("нет поля schedule");
-      const { tasks, skipped } = sanitizeSchedule(data.schedule);
-      if (!tasks.length) throw new Error("нет ни одной корректной задачи");
-      state.schedule = tasks;
-      if (Array.isArray(data.library) && data.library.length) {
-        state.library = data.library
-          .filter(t => t && t.name)
-          .map(t => ({ name: String(t.name), duration_min: Math.round(t.duration_min) || 30,
-            color: t.color || PALETTE[0], emoji: t.emoji || "⭐" }));
+      if (Array.isArray(data.days)) {
+        // полная резервная копия недели
+        if (data.days.length !== 7) throw new Error("в файле не 7 дней");
+        let total = 0, skipped = 0;
+        for (let i = 0; i < 7; i++) {
+          const r = sanitizeSchedule(Array.isArray(data.days[i]) ? data.days[i] : []);
+          state.days[i] = r.tasks;
+          total += r.tasks.length;
+          skipped += r.skipped;
+        }
+        if (Array.isArray(data.library) && data.library.length) {
+          state.library = sanitizeLibrary(data.library);
+        }
+        state.schedule = state.days[state.activeDay];
+        clearConflicts();
+        saveState();
+        showMessage(skipped
+          ? "Импортирована неделя: " + total + " задач, пропущено некорректных: " + skipped
+          : "Импортирована неделя: " + total + " задач");
+      } else {
+        // однодневный файл прежнего формата — в активный день
+        if (!Array.isArray(data.schedule)) throw new Error("нет поля schedule");
+        const { tasks, skipped } = sanitizeSchedule(data.schedule);
+        if (!tasks.length) throw new Error("нет ни одной корректной задачи");
+        state.days[state.activeDay] = tasks;
+        state.schedule = tasks;
+        if (Array.isArray(data.library) && data.library.length) {
+          state.library = sanitizeLibrary(data.library);
+        }
+        // в файле импорта эмодзи у schedule нет — берём из библиотеки по имени
+        state.schedule.forEach(t => { t.emoji = emojiForName(t.name); });
+        clearConflicts();
+        saveState();
+        showMessage(skipped
+          ? "Импортировано в день «" + DAY_NAMES[state.activeDay] + "» " + tasks.length +
+            " задач, пропущено некорректных: " + skipped
+          : "Импортировано в день «" + DAY_NAMES[state.activeDay] + "» задач: " + tasks.length);
       }
-      // в файле импорта эмодзи у schedule нет — берём из библиотеки по имени
-      state.schedule.forEach(t => { t.emoji = emojiForName(t.name); });
-      clearConflicts();
-      saveState();
-      showMessage(skipped
-        ? "Импортировано " + tasks.length + " задач, пропущено некорректных: " + skipped
-        : "Импортировано задач: " + tasks.length);
     } catch (e) {
       showMessage("Не удалось импортировать файл: " + e.message);
     }
@@ -1030,6 +1200,7 @@ function importJSON(file) {
     // интерфейс остаётся в рабочем состоянии
     renderSchedule();
     renderLibrary();
+    renderDayTabs();
   };
   reader.readAsText(file);
 }
@@ -1054,7 +1225,10 @@ const REFERENCE_DAY = [
   { name: "Чтение", start: "21:00", duration_min: 30, color: "#a6e800", emoji: "📖" }
 ];
 function loadReferenceDay() {
-  state.schedule = REFERENCE_DAY.map(t => Object.assign({ id: newId() }, t));
+  // эталон загружается в активный день; массив подменяем в state.days,
+  // а ссылку state.schedule обновляем вслед
+  state.days[state.activeDay] = REFERENCE_DAY.map(t => Object.assign({ id: newId() }, t));
+  state.schedule = state.days[state.activeDay];
   clearConflicts();
   saveState();
   if (typeof document !== "undefined") renderSchedule();
@@ -1129,6 +1303,36 @@ function runSelfTest() {
         "кольцо " + ring.s0 + "–" + ring.s1 + ", диск " + disk.s0 + "–" + disk.s1);
     }
   }
+  // д) неделя: ровно 7 дней, state.schedule — ссылка на активный день
+  check("В состоянии ровно 7 дней",
+    Array.isArray(state.days) && state.days.length === 7);
+  check("state.schedule указывает на активный день",
+    state.schedule === state.days[state.activeDay]);
+
+  // е) сумма 1440 мин на каждом непустом дне
+  for (let i = 0; i < 7; i++) {
+    const daySum = state.days[i].reduce((acc, t) => acc + t.duration_min, 0);
+    check("День «" + DAY_NAMES[i] + "»: сумма 1440 мин (или день пуст)",
+      daySum === 0 || daySum === 1440, "получено " + daySum);
+  }
+
+  // ж) экспорт дня — прежний формат: ключи schedule/library, без emoji у задач
+  const exp = buildDayExport();
+  check("Экспорт дня даёт файл старого формата",
+    Object.keys(exp).sort().join(",") === "library,schedule" &&
+    exp.schedule.every(t => !("emoji" in t) && "name" in t && "start" in t &&
+      "duration_min" in t && "color" in t));
+
+  // з) переключение дней не теряет данные
+  const fromDay = state.activeDay;
+  const lenBefore = state.schedule.length;
+  const namesBefore = state.schedule.map(t => t.name).join("|");
+  setActiveDay((fromDay + 1) % 7);
+  setActiveDay(fromDay);
+  check("Переключение дней туда-обратно сохраняет расписание",
+    state.schedule.length === lenBefore &&
+    state.schedule.map(t => t.name).join("|") === namesBefore);
+
   const passed = results.filter(Boolean).length;
   console.log("Контрольный тест: " + passed + "/" + results.length + " проверок пройдено");
   return results.every(Boolean);
@@ -1140,14 +1344,23 @@ function initUI() {
   fillTimeSelects();
   renderSchedule();
   renderLibrary();
+  renderDayTabs();
 
   document.getElementById("btn-reference").addEventListener("click", loadReferenceDay);
-  document.getElementById("btn-export").addEventListener("click", exportJSON);
+  document.getElementById("btn-copy-day").addEventListener("click", openCopyDialog);
+  document.getElementById("btn-export-day").addEventListener("click", exportDayJSON);
+  document.getElementById("btn-export-week").addEventListener("click", exportWeekJSON);
   document.getElementById("btn-import").addEventListener("click", () =>
     document.getElementById("import-file").click());
   document.getElementById("import-file").addEventListener("change", ev => {
     if (ev.target.files[0]) importJSON(ev.target.files[0]);
     ev.target.value = "";
+  });
+
+  document.getElementById("copy-apply").addEventListener("click", applyCopyDay);
+  document.getElementById("copy-cancel").addEventListener("click", closeCopyDialog);
+  document.getElementById("copy-overlay").addEventListener("click", ev => {
+    if (ev.target.id === "copy-overlay") closeCopyDialog();
   });
 
   document.getElementById("lib-add").addEventListener("click", submitLibForm);
