@@ -456,18 +456,30 @@ function renderSchedule() {
   }
 }
 
-// Подписи задач: эмодзи + название, прямой текст вдоль хорды сегмента на
-// среднем радиусе уровня. Угол поворота = угол середины сегмента − 90°;
-// вверх ногами — переворачиваем.
-// Лестница автоподбора: эмодзи+текст → уменьшенный и уплотнённый текст →
-// только эмодзи (узкие сегменты ~15 мин и меньше) крупно по центру сегмента;
-// если не влезает даже эмодзи — выноска снаружи круга на линии-указателе.
+// Подписи задач: эмодзи + название.
+// Внутренний диск (04:00–16:00): прямой текст вдоль хорды сегмента на среднем
+// радиусе; угол поворота = угол середины сегмента − 90°, вверх ногами —
+// переворачиваем; лестница автоподбора с уплотнением (textLength).
+// Внешнее кольцо (16:00–04:00): текст идёт по дуге сегмента через <textPath>
+// по невидимой дуге в <defs> (радиус = середина кольца). Перевёрнутость
+// решается направлением дуги: верхняя половина — по часовой (sweep=1),
+// нижняя — концы дуги меняются местами (sweep=0); rotate не используется.
+// Автоподбор кегля по длине дуги: базовый → ×0.75 → ×0.55 (textPath не
+// поддерживает textLength, уплотнения нет).
+// Общий фолбэк обоих уровней: только эмодзи крупно по центру сегмента
+// (узкие сегменты ~15 мин и меньше); если не влезает даже эмодзи — выноска
+// снаружи круга на линии-указателе.
 // Полное название и время — во всплывающей подсказке (title на сегменте).
 function renderTaskLabels(svg) {
   const R_MID = { inner: R_INNER / 2, outer: (R_BAND + R_OUTER) / 2 };
-  // доступная длина текста вдоль уровня (с полями)
-  const MAX_LEN = { inner: R_INNER - 40, outer: R_OUTER - R_BAND - 16 };
-  const FONT_STEPS = { inner: [26, 18], outer: [24, 18] };
+  // доступная длина прямого текста на внутреннем диске (с полями)
+  const MAX_LEN_INNER = R_INNER - 40;
+  const FONT_STEPS_INNER = [26, 18];
+  // лестница кеглей дуговых подписей внешнего кольца: базовый, ×0.75, ×0.55
+  const FONT_STEPS_OUTER = [24, 18, 13];
+  // невидимые дуги для textPath внешнего кольца (id label-arc-outer-N)
+  const defs = el("defs", {}, svg);
+  let arcN = 0;
 
   // по одной подписи на задачу на уровень — берём самый широкий кусок
   const best = new Map(); // key task.id:level -> piece
@@ -484,41 +496,84 @@ function renderTaskLabels(svg) {
     const sweepRad = (p.s1 - p.s0) * DEG_PER_MIN * Math.PI / 180;
     const midA = SEAM_ANGLE + ((p.s0 + p.s1) / 2) * DEG_PER_MIN;
     const rMid = R_MID[p.level];
-    const maxLen = MAX_LEN[p.level];
     const label = (task.emoji || "⭐") + " " + task.name;
 
     let placed = false;
-    const steps = FONT_STEPS[p.level];
-    for (let i = 0; i < steps.length && !placed; i++) {
-      const fs = steps[i];
-      const t = el("text", {
-        "text-anchor": "middle", "dominant-baseline": "middle",
-        "font-size": fs, "font-weight": 600, "pointer-events": "none"
-      }, svg);
-      t.textContent = label;
-      const natLen = t.getComputedTextLength();
-      // последний шаг лестницы — с уплотнением (сжатие по горизонтали)
-      const condense = i === steps.length - 1 && natLen > maxLen;
-      const effLen = condense ? maxLen : natLen;
-      // высота шрифта должна влезать в дуговую ширину сегмента;
-      // для диска проверяем у внутреннего конца текста, где клин уже всего
-      const rCheck = p.level === "inner" ? Math.max(rMid - effLen / 2, 1) : rMid;
-      const fits = effLen <= maxLen && fs <= rCheck * sweepRad * 0.8;
-      if (fits) {
-        if (condense) {
-          t.setAttribute("textLength", maxLen);
-          t.setAttribute("lengthAdjust", "spacingAndGlyphs");
+    if (p.level === "inner") {
+      // внутренний диск: прямой повёрнутый текст, последний шаг — с уплотнением
+      const steps = FONT_STEPS_INNER;
+      const maxLen = MAX_LEN_INNER;
+      for (let i = 0; i < steps.length && !placed; i++) {
+        const fs = steps[i];
+        const t = el("text", {
+          "text-anchor": "middle", "dominant-baseline": "middle",
+          "font-size": fs, "font-weight": 600, "pointer-events": "none"
+        }, svg);
+        t.textContent = label;
+        const natLen = t.getComputedTextLength();
+        // последний шаг лестницы — с уплотнением (сжатие по горизонтали)
+        const condense = i === steps.length - 1 && natLen > maxLen;
+        const effLen = condense ? maxLen : natLen;
+        // высота шрифта должна влезать в дуговую ширину сегмента;
+        // для диска проверяем у внутреннего конца текста, где клин уже всего
+        const rCheck = Math.max(rMid - effLen / 2, 1);
+        const fits = effLen <= maxLen && fs <= rCheck * sweepRad * 0.8;
+        if (fits) {
+          if (condense) {
+            t.setAttribute("textLength", maxLen);
+            t.setAttribute("lengthAdjust", "spacingAndGlyphs");
+          }
+          const pos = polar(rMid, midA);
+          let rot = ((midA - 90) % 360 + 360) % 360;
+          if (rot > 90 && rot < 270) rot += 180; // текст не вверх ногами
+          t.setAttribute("x", pos.x);
+          t.setAttribute("y", pos.y);
+          t.setAttribute("fill", textColorFor(task.color));
+          t.setAttribute("transform", `rotate(${rot} ${pos.x} ${pos.y})`);
+          placed = true;
+        } else {
+          svg.removeChild(t);
         }
-        const pos = polar(rMid, midA);
-        let rot = ((midA - 90) % 360 + 360) % 360;
-        if (rot > 90 && rot < 270) rot += 180; // текст не вверх ногами
-        t.setAttribute("x", pos.x);
-        t.setAttribute("y", pos.y);
-        t.setAttribute("fill", textColorFor(task.color));
-        t.setAttribute("transform", `rotate(${rot} ${pos.x} ${pos.y})`);
-        placed = true;
-      } else {
-        svg.removeChild(t);
+      }
+    } else {
+      // внешнее кольцо: текст по дуге сегмента через textPath
+      // (textPath не поддерживает textLength — уплотнения нет)
+      const a0 = SEAM_ANGLE + p.s0 * DEG_PER_MIN + 1; // отступ ~1° от краёв
+      const a1 = SEAM_ANGLE + p.s1 * DEG_PER_MIN - 1;
+      const arcLen = sweepRad * rMid; // длина дуги на среднем радиусе кольца
+      if (a1 - a0 >= 2) {
+        // направление дуги само решает перевёрнутость: верхняя половина круга —
+        // по часовой (sweep=1), нижняя — концы меняем местами и идём
+        // против часовой (sweep=0). Критерий половин — положение середины
+        // сегмента (у хордового текста inner-диска критерий иной!)
+        const largeArc = a1 - a0 > 180 ? 1 : 0; // «Сон» = 195° > 180°
+        const mA = ((midA % 360) + 360) % 360;
+        const bottom = mA > 90 && mA < 270;
+        const pa = polar(rMid, bottom ? a1 : a0);
+        const pb = polar(rMid, bottom ? a0 : a1);
+        const arc = el("path", {
+          id: "label-arc-outer-" + (arcN++), fill: "none",
+          d: `M ${pa.x} ${pa.y} A ${rMid} ${rMid} 0 ${largeArc} ${bottom ? 0 : 1} ${pb.x} ${pb.y}`
+        }, defs);
+        for (let i = 0; i < FONT_STEPS_OUTER.length && !placed; i++) {
+          const fs = FONT_STEPS_OUTER[i];
+          // эвристика влезания: длина строки вдоль дуги + кегль в толщину кольца
+          const fits = label.length * fs * 0.6 < arcLen &&
+            fs <= (R_OUTER - R_BAND) * 0.6;
+          if (fits) {
+            const t = el("text", {
+              "text-anchor": "middle", "dominant-baseline": "middle",
+              "font-size": fs, "font-weight": 600, "pointer-events": "none",
+              fill: textColorFor(task.color)
+            }, svg);
+            const tp = el("textPath", {
+              href: "#" + arc.id, startOffset: "50%",
+              method: "align", spacing: "auto"
+            }, t);
+            tp.textContent = label;
+            placed = true;
+          }
+        }
       }
     }
 
