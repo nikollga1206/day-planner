@@ -2,7 +2,13 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<!-- iOS: запуск с домашнего экрана как приложение (полный экран, без адресной строки) -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Спираль суток">
+<meta name="theme-color" content="#ffffff">
 <title>Планировщик дня — Спираль суток</title>
 <style>
   :root {
@@ -12,7 +18,9 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; color: var(--ink);
-    font-family: "Segoe UI", Arial, sans-serif; }
+    font-family: "Segoe UI", Arial, sans-serif;
+    overflow-x: hidden; /* страховка от горизонтальной прокрутки на узких экранах */
+    overscroll-behavior: none; /* против pull-to-refresh при перетаскивании пальцем */ }
   header {
     display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
     padding: 10px 16px; border-bottom: 2px solid var(--line);
@@ -47,7 +55,7 @@
   .lib-item .emoji { font-size: 22px; flex: 0 0 auto; }
   .lib-item .nm { flex: 1 1 auto; }
   .lib-item .dur { color: #666; font-size: 14px; flex: 0 0 auto; }
-  .lib-item button { min-height: 36px; min-width: 36px; padding: 2px 6px; font-size: 15px; border-radius: 8px; }
+  .lib-item button { min-height: 44px; min-width: 44px; padding: 2px 8px; font-size: 17px; border-radius: 8px; }
   #lib-form { border: 2px dashed #999; border-radius: 10px; padding: 10px; margin-top: 12px; }
   #lib-form h3 { margin: 0 0 8px; font-size: 17px; }
   #lib-form label { display: block; font-size: 14px; margin: 6px 0 2px; }
@@ -101,6 +109,17 @@
   .seg.conflict { stroke: #e84c3d; stroke-width: 6; }
   /* часовые метки: белое гало, чтобы читались над линиями-указателями */
   .tmark { paint-order: stroke; stroke: #fff; stroke-width: 5px; stroke-linejoin: round; }
+  /* iOS: убираем серую вспышку при тапе на интерактивные элементы */
+  button, .lib-item, .seg, .pcolor, .epick, #copy-days label {
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* iPhone и узкие окна: спираль на всю ширину, панель задач под ней */
+  @media (max-width: 760px) {
+    main { flex-direction: column; }
+    #spiral-wrap { flex: none; width: 100%; min-width: 0; }
+    #spiral { width: min(100%, calc(100vh - 200px)); }
+    aside { flex: none; width: 100%; border-left: none; border-top: 2px solid var(--line); }
+  }
 </style>
 </head>
 <body>
@@ -1385,6 +1404,14 @@ function initUI() {
   document.addEventListener("pointermove", onDragMove, { passive: false });
   document.addEventListener("pointerup", onDragEnd);
   document.addEventListener("pointercancel", onDragEnd);
+
+  // Страховка для старых iOS Safari (без Pointer Events): не даём странице
+  // прокручиваться, пока палец на спирали или на списке задач
+  if (!window.PointerEvent) {
+    const noScroll = ev => ev.preventDefault();
+    document.getElementById("spiral").addEventListener("touchmove", noScroll, { passive: false });
+    document.getElementById("lib-list").addEventListener("touchmove", noScroll, { passive: false });
+  }
 
   // Открытие с #selftest загружает эталонный день и запускает контрольный тест
   if (location.hash === "#selftest") loadReferenceDay();
